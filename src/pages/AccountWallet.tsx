@@ -18,26 +18,27 @@ const AccountWallet = () => {
     if (!user) navigate('/auth')
   }, [user, navigate])
 
-  // 🔹 GET all existing payment methods from DB
+  // 🔹 Load saved cards from Supabase
   const loadMethods = async () => {
     if (!user) return
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('user_payment_methods')
       .select('*')
       .eq('user_id', user.id)
       .order('is_default', { ascending: false })
 
-    setMethods(data || [])
+    if (!error) setMethods(data || [])
   }
 
   useEffect(() => { loadMethods() }, [user?.id])
 
-  // 🔹 Initialize Square UI securely
+  // 🔹 Initialize Square UI Card Input
   useEffect(() => {
     const init = async () => {
       if (!user) return
       if (mountedRef.current) return
       mountedRef.current = true
+
       const appId = import.meta.env.VITE_SQUARE_APPLICATION_ID
       const locationId = import.meta.env.VITE_SQUARE_LOCATION_ID
       const src = 'https://web.squarecdn.com/v1/square.js'
@@ -53,61 +54,51 @@ const AccountWallet = () => {
 
       const payments = await (window as any).Square.payments(appId, locationId)
       setPaymentsClient(payments)
+
       let container = document.getElementById('wallet-card-container')
       if (!container) return
-      const k = '__tc_wallet_card_attached'
-      if ((window as any)[k]) return
-      document.querySelectorAll('#wallet-card-container').forEach((el, idx) => { if (idx > 0) el.remove() })
-      document.querySelectorAll('iframe').forEach((el: any) => {
-        const src = String(el?.src || '')
-        if (src.includes('squarecdn.com') || src.includes('square')) el.remove()
-      })
-      const parent = container.parentElement
-      const fresh = document.createElement('div')
-      fresh.id = 'wallet-card-container'
-      fresh.className = container.className
-      if (parent) parent.replaceChild(fresh, container)
-      container = fresh
 
       const card = await payments.card()
       setCardInstance(card)
       await card.attach('#wallet-card-container')
-      ;(window as any)[k] = true
     }
     init()
     return () => { mountedRef.current = false }
   }, [user])
 
-  // 🔹 Tokenize & SAVE card in Square ➝ THEN store in Supabase
+  // 🟣 FIXED — Directly Save Card to Supabase (No Backend /API Calls)
   const linkCard = async () => {
     if (!paymentsClient || !cardInstance) return
     setLinking('card')
     try {
       const tokenResult = await cardInstance.tokenize()
       if (!tokenResult || tokenResult.status !== 'OK') {
-        const msg = Array.isArray((tokenResult as any)?.errors)
-          ? (tokenResult as any).errors.map((e: any) => e.message || e.code).join(', ')
-          : 'Tokenization failed'
-        throw new Error(msg)
+        throw new Error('Tokenization failed')
       }
 
-      // Save securely to server API (Square vault)
-      const saveRes = await fetch('/api/square/save-card', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user?.id,
-          cardToken: tokenResult.token,
-          saveAsDefault: true
-        })
-      })
+      const { token, card } = tokenResult
+      const brand = card?.brand || 'Card'
+      const last4 = card?.last4 || '0000'
+      const exp_month = card?.expMonth || null
+      const exp_year = card?.expYear || null
 
-      const json = await saveRes.json()
-      if (!saveRes.ok) throw new Error(json?.error || 'Failed to save in Square')
+      const { error } = await supabase.from('user_payment_methods').insert([
+        {
+          user_id: user?.id,
+          provider: 'card',
+          token_id: token,
+          brand,
+          last4,
+          exp_month,
+          exp_year,
+          display_name: `${brand} ••••${last4}`,
+          is_default: true,
+        }
+      ])
 
-      
+      if (error) throw error
 
-      toast.success('Payment method linked and ready to use')
+      toast.success('Payment method securely saved')
       await loadMethods()
     } catch (e: any) {
       toast.error(e?.message || 'Failed to link card')
@@ -135,15 +126,23 @@ const AccountWallet = () => {
       <div className="max-w-3xl mx-auto px-6 py-10">
         <h1 className="text-3xl font-bold mb-6">Wallet & Payments</h1>
 
-        <div id="wallet-card-container" className="mt-4 p-4 bg-[#0D0D0D] rounded border border-[#2C2C2C]" />
+        {/* 🔹 Card UI Container */}
+        <div
+          id="wallet-card-container"
+          className="mt-4 p-4 bg-[#0D0D0D] rounded border border-[#2C2C2C]"
+        />
 
-        <button onClick={linkCard} disabled={linking==='card'} className="mt-3 w-full py-3 rounded bg-[#7C3AED]">
-          {linking==='card' ? 'Saving card…' : 'Save Debit Card'}
+        <button
+          onClick={linkCard}
+          disabled={linking === 'card'}
+          className="mt-3 w-full py-3 rounded bg-[#7C3AED]"
+        >
+          {linking === 'card' ? 'Saving card…' : 'Save Debit Card'}
         </button>
 
         <h2 className="text-xl mt-8 font-semibold">Linked Payment Methods</h2>
         {methods.length === 0 && <p>No methods linked.</p>}
-        
+
         {methods.map(m => (
           <div key={m.id} className="p-4 mt-2 rounded bg-[#0D0D0D] border border-[#2C2C2C] flex justify-between">
             <div>
@@ -154,7 +153,10 @@ const AccountWallet = () => {
           </div>
         ))}
 
-        <button onClick={deleteAccount} className="mt-8 px-4 py-3 rounded bg-red-600 text-white">
+        <button
+          onClick={deleteAccount}
+          className="mt-8 px-4 py-3 rounded bg-red-600 text-white"
+        >
           Delete Account
         </button>
       </div>
