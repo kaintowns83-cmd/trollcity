@@ -888,7 +888,7 @@ const StreamRoom = () => {
         console.log('Token required, falling back to token authentication:', tokenError.message)
 
         const j = await api.post(API_ENDPOINTS.livekit.token, {
-          channelName: stream.livekit_room || stream.agora_channel,
+          channelName: stream.livekit_room,
           uid: user?.id,
           role: 'subscriber'
         })

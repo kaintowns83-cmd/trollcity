@@ -69,8 +69,8 @@ export interface Stream {
   current_viewers: number
   total_gifts_coins: number
   total_unique_gifters: number
-  agora_channel: string
-  agora_token: string | null
+  livekit_room: string
+  livekit_token: string | null
   multi_beam?: boolean
   created_at: string
   updated_at: string
