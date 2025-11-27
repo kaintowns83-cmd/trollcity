@@ -10,14 +10,13 @@ import Sidebar from './components/Sidebar'
 import Header from './components/Header'
 import ProfileSetupModal from './components/ProfileSetupModal'
 
-// STATIC (keep Home/Auth fast)
+// STATIC
 import Home from './pages/Home'
 import Auth from './pages/Auth'
 import AuthCallback from './pages/AuthCallback'
 import TermsAgreement from './pages/TermsAgreement'
-import ProfileSetup from './pages/ProfileSetup'
 
-// LAZY LOADED — reduce bundle size
+// LAZY LOADED
 const GoLive = lazy(() => import('./pages/GoLive'))
 const StreamRoom = lazy(() => import('./pages/StreamRoom'))
 const StreamSummary = lazy(() => import('./pages/StreamSummary'))
@@ -53,178 +52,24 @@ const CoinStore = lazy(() => import('./pages/CoinStore'))
 const FamilyCityMap = lazy(() => import('./FamilyCityMap'))
 
 function App() {
-  const {
-    user,
-    profile,
-    setAuth,
-    setProfile,
-    setLoading,
-    setIsAdmin,
-    isLoading,
-  } = useAuthStore()
-
+  const { user, profile, setAuth, setProfile, setLoading, setIsAdmin, isLoading } = useAuthStore()
   const location = useLocation()
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [profileModalLoading, setProfileModalLoading] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<any>(null)
-  const [installed, setInstalled] = useState(() => {
-    try { return localStorage.getItem('pwa-installed') === 'true' } catch { return false }
-  })
 
-  // --- Require Auth (unchanged, fully correct) ---
   const RequireAuth = () => {
-    const { user, profile, isLoading } = useAuthStore()
-    const location = useLocation()
-
-    if (isLoading) {
-      return (
-        <div className="min-h-screen flex items-center justify-center bg-[#0A0814] text-white">
-          <div className="animate-pulse px-6 py-3 rounded bg-[#121212] border border-[#2C2C2C]">
-            Loading…
-          </div>
-        </div>
-      )
-    }
-
+    if (isLoading) return <LoadingScreen />
     if (!user) return <Navigate to="/auth" replace />
-
-    const needsTerms =
-      profile && profile.terms_accepted === false && profile.role !== 'admin'
-    if (needsTerms && location.pathname !== '/terms') {
+    if (profile && profile.terms_accepted === false && location.pathname !== '/terms' && profile.role !== 'admin') {
       return <Navigate to="/terms" replace />
     }
-
     return <Outlet />
   }
 
-  // --- FamilyAccessRoute (unchanged) ---
-  const FamilyAccessRoute = () => {
-    const { user, profile } = useAuthStore()
-    const [allowed, setAllowed] = useState<boolean | null>(null)
-
-    useEffect(() => {
-      const run = async () => {
-        if (!user) return setAllowed(false)
-        if (profile?.role === 'admin') return setAllowed(true)
-
-        try {
-          const { data: member } = await supabase
-            .from('troll_family_members')
-            .select('approved, has_crown_badge')
-            .eq('user_id', user.id)
-            .maybeSingle()
-
-          const { data: payment } = await supabase
-            .from('coin_transactions')
-            .select('id')
-            .eq('user_id', user.id)
-            .eq('status', 'completed')
-            .ilike('description', '%Family Lounge%')
-            .maybeSingle()
-
-          setAllowed(!!member?.approved && !!member?.has_crown_badge && !!payment)
-        } catch {
-          setAllowed(false)
-        }
-      }
-      run()
-    }, [user?.id, profile?.role])
-
-    if (allowed === null) return <LoadingScreen />
-    return allowed ? <Outlet /> : <Navigate to="/apply/family" replace />
-  }
-
-  // --- Session restore & Profile logic (unchanged, fixed admin caching ok) ---
-  useEffect(() => {
-    const initializeAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        const currentUser = session?.user ?? null
-        setAuth(currentUser, session)
-
-        if (session?.user) {
-          const isAdmin = isAdminEmail(session.user.email)
-
-          // Load cached admin profile
-          if (isAdmin) {
-            const cached = localStorage.getItem('admin-profile-cache')
-            if (cached) {
-              try { setProfile(JSON.parse(cached)); setIsAdmin(true) } catch {}
-            }
-
-            try {
-              const result = await (await import('./lib/api')).default.post('/auth/fix-admin-role')
-              if (result.success && result.profile) {
-                setProfile(result.profile)
-                setIsAdmin(true)
-                localStorage.setItem('admin-profile-cache', JSON.stringify(result.profile))
-                setLoading(false)
-                return
-              }
-            } catch {}
-          }
-
-          // Normal profile fetch
-          const { data: profileData } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .maybeSingle()
-
-          if (profileData) {
-            if (isAdmin && profileData.role !== 'admin') {
-              const { data: updated } = await supabase
-                .from('user_profiles')
-                .update({ role: 'admin' })
-                .eq('id', session.user.id)
-                .select('*')
-                .single()
-              setProfile(updated || profileData)
-              setIsAdmin(true)
-            } else {
-              setProfile(profileData)
-              if (profileData.role === 'admin') setIsAdmin(true)
-            }
-          } else {
-            setProfile(null)
-          }
-        } else {
-          setProfile(null)
-        }
-      } catch {}
-      finally {
-        setLoading(false)
-      }
-    }
-    initializeAuth()
-  }, [])
-
-  // --- Install prompt code (unchanged) ---
-  useEffect(() => {
-    const handleBeforeInstall = (e: any) => {
-      e.preventDefault()
-      setInstallPrompt(e)
-    }
-    const handleInstalled = () => {
-      localStorage.setItem('pwa-installed', 'true')
-      setInstalled(true)
-      setInstallPrompt(null)
-      toast.success('App installed')
-    }
-    window.addEventListener('beforeinstallprompt', handleBeforeInstall)
-    window.addEventListener('appinstalled', handleInstalled)
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstall)
-      window.removeEventListener('appinstalled', handleInstalled)
-    }
-  }, [])
-
-  // --- Loading component for Suspense ---
   const LoadingScreen = () => (
     <div className="min-h-screen flex items-center justify-center bg-[#0A0814] text-white">
-      <div className="animate-pulse px-6 py-3 rounded bg-[#121212] border border-[#2C2C2C]">
-        Loading…
-      </div>
+      <div className="animate-pulse px-6 py-3 rounded bg-[#121212] border border-[#2C2C2C]">Loading…</div>
     </div>
   )
 
@@ -239,45 +84,67 @@ function App() {
             <Suspense fallback={<LoadingScreen />}>
               <Routes>
                 <Route element={<RequireAuth />}>
-
                   <Route path="/" element={<Home />} />
-                  <Route path="/go-live" element={<GoLive />} />
+
+                  {/* CORE PAGES */}
                   <Route path="/messages" element={<Messages />} />
+                  <Route path="/following" element={<Following />} />
+                  <Route path="/trollifications" element={<Trollifications />} />
+                  <Route path="/leaderboard" element={<Leaderboard />} />
+                  <Route path="/support" element={<Support />} />
+
+                  {/* STORE & ECONOMY */}
+                  <Route path="/store" element={<CoinStore />} />
+                  <Route path="/transactions" element={<TransactionHistory />} />
+                  <Route path="/earnings" element={<EarningsPayout />} />
+
+                  {/* LIVE STREAMS */}
+                  <Route path="/go-live" element={<GoLive />} />
                   <Route path="/stream/:streamId" element={<StreamRoom />} />
                   <Route path="/stream/:id/summary" element={<StreamSummary />} />
-                  <Route path="/store" element={<CoinStore />} />
-                  <Route path="/earnings" element={<EarningsPayout />} />
-                  <Route path="/notifications" element={<Notifications />} />
-                  <Route path="/family/city" element={<TrollFamilyCity />} />
 
-                  {/* Officer Lounge */}
+                  {/* FAMILY */}
+                  <Route path="/family" element={<TrollFamily />} />
+                  <Route path="/family/city" element={<TrollFamilyCity />} />
+                  <Route path="/family/profile/:id" element={<FamilyProfilePage />} />
+                  <Route path="/family/wars" element={<FamilyWarsPage />} />
+                  <Route path="/family/chat" element={<FamilyChatPage />} />
+
+                  {/* APPLICATIONS */}
+                  <Route path="/apply" element={<Application />} />
+                  <Route path="/apply/family" element={<FamilyApplication />} />
+                  <Route path="/apply/officer" element={<OfficerApplication />} />
+                  <Route path="/apply/troller" element={<TrollerApplication />} />
+
+                  {/* PROFILE */}
+                  <Route path="/profile/:username" element={<Profile />} />
+
+                  {/* TROLL WHEEL */}
+                  <Route path="/wheel" element={<TrollWheel />} />
+
+                  {/* SETTINGS */}
+                  <Route path="/account/wallet" element={<AccountWallet />} />
+
+                  {/* OFFICER */}
                   <Route
                     path="/officer/lounge"
-                    element={
-                      profile?.role === 'troll_officer' || profile?.role === 'admin'
-                        ? <TrollOfficerLounge />
-                        : <Navigate to="/" replace />
-                    }
+                    element={profile?.role === 'admin' || profile?.role === 'troll_officer'
+                      ? <TrollOfficerLounge />
+                      : <Navigate to="/" replace />}
                   />
 
-                  {/* Admin route */}
-                  <Route
-                    path="/admin"
-                    element={
-                      profile?.role === 'admin'
-                        ? <AdminDashboard />
-                        : <Navigate to="/" replace />
-                    }
-                  />
-
+                  {/* ADMIN */}
+                  <Route path="/admin" element={profile?.role === 'admin' ? <AdminDashboard /> : <Navigate to="/" replace />} />
+                  <Route path="/rfc" element={profile?.role === 'admin' ? <AdminRFC /> : <Navigate to="/" replace />} />
+                  <Route path="/changelog" element={<Changelog />} />
                 </Route>
 
-                {/* Auth & Terms */}
+                {/* AUTH & TERMS */}
                 <Route path="/auth" element={user ? <Navigate to="/" replace /> : <Auth />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
                 <Route path="/terms" element={<TermsAgreement />} />
 
-                {/* Fallback */}
+                {/* CATCH-ALL */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
@@ -285,24 +152,9 @@ function App() {
         </div>
       </div>
 
-      <ProfileSetupModal
-        isOpen={profileModalOpen}
-        onSubmit={(u, b) => {}}
-        loading={profileModalLoading}
-        onClose={() => setProfileModalOpen(false)}
-      />
-
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          style: {
-            background: '#2e1065',
-            color: '#fff',
-            border: '1px solid #22c55e',
-            boxShadow: '0 0 15px rgba(34, 197, 94, 0.5)',
-          }
-        }}
-      />
+      <Toaster position="top-right" toastOptions={{
+        style: { background: '#2e1065', color: '#fff', border: '1px solid #22c55e' }
+      }} />
     </div>
   )
 }
