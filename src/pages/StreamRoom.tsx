@@ -469,13 +469,13 @@ const StreamRoom = () => {
       })
       remoteTracks.current = {}
       
-      // Leave Agora channel
+      // Disconnect from LiveKit room
       if (client.current) {
         try {
-          client.current.leave()
+          client.current.disconnect()
           client.current = null
         } catch (e) {
-          console.error('Error leaving channel:', e)
+          console.error('Error disconnecting from room:', e)
         }
       }
       
@@ -782,8 +782,8 @@ const StreamRoom = () => {
         }
       }
 
-      // Initialize Agora viewer
-      await initializeAgoraViewer()
+      // Initialize LiveKit viewer
+      await initializeLiveKitViewer()
       // Identity event hook — Silent viewer detection (2 minutes without chat)
       const startedAt = Date.now()
       setTimeout(async () => {
@@ -805,106 +805,53 @@ const StreamRoom = () => {
   const [battle, setBattle] = useState<{ opponent?: any; startAt?: number; endsAt?: number; myCoins: number; oppCoins: number } | null>(null)
   const [trollDrop, setTrollDrop] = useState<{ id: string; coins: number; endsAt: number } | null>(null)
 
-  const initializeAgoraViewer = async () => {
-    if (!stream?.agora_channel) return
+  const initializeLiveKitViewer = async () => {
+    if (!stream?.livekit_room) return
 
     try {
-      const APP_ID = (import.meta as any).env.VITE_AGORA_APP_ID
-      if (!APP_ID) {
-        toast.error('Agora App ID not configured')
+      const LIVEKIT_URL = (import.meta as any).env.VITE_LIVEKIT_URL
+      if (!LIVEKIT_URL) {
+        toast.error('LiveKit URL not configured')
         return
       }
 
-      const AgoraRTC = (await import('agora-rtc-sdk-ng')).default
-      
-      // Configure client with optimizations
-      client.current = AgoraRTC.createClient({ 
-        mode: 'live', 
-        codec: 'vp8',
-        role: 'audience'
+      const { Room, RoomEvent } = await import('livekit-client')
+
+      // Create LiveKit room
+      client.current = new Room()
+
+      // Get token
+      const j = await api.post(API_ENDPOINTS.livekit.token, {
+        channelName: stream.livekit_room,
+        uid: user?.id,
+        role: 'subscriber'
       })
-      
-      // Enable low-latency mode
-      client.current.setClientRole('audience', { level: 1 })
-      
-      // Set stream fallback to maintain quality
-      client.current.setStreamFallbackOption(2, 2)
-      
-      client.current.on('user-published', async (remoteUser: any, mediaType: any) => {
-        try {
-          await client.current.subscribe(remoteUser, mediaType)
-          const userId = String(remoteUser.uid)
-          
-          if (mediaType === 'video') {
-            const videoTrack = remoteUser.videoTrack
-            remoteTracks.current[userId] = videoTrack
-            
-            // For single-stream mode (non multi-beam)
-            if (remoteVideoRef.current && !stream?.multi_beam) {
-              videoTrack.play(remoteVideoRef.current, { fit: 'contain' })
-            }
-            
-            // For multi-beam mode
-            if (stream?.multi_beam && multiStreamRefs.current[userId]) {
-              videoTrack.play(multiStreamRefs.current[userId]!, { fit: 'cover' })
-            }
+      if (!j?.success || !j?.token) throw new Error(j?.error || 'Failed to get token')
+      const token = j.token as string
+
+      // Connect to room
+      await client.current.connect(LIVEKIT_URL, token)
+      console.log('Connected to LiveKit room')
+
+      // Handle participant tracks
+      client.current.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        if (track.kind === 'video') {
+          const videoElement = track.attach()
+          if (remoteVideoRef.current && !stream?.multi_beam) {
+            remoteVideoRef.current.appendChild(videoElement)
           }
-          
-          if (mediaType === 'audio') {
-            const audioTrack = remoteUser.audioTrack
-            audioTrack?.play()
-          }
-        } catch (error) {
-          console.error('Error subscribing to remote user:', error)
+        } else if (track.kind === 'audio') {
+          track.attach()
         }
       })
 
-      client.current.on('user-unpublished', (remoteUser: any, mediaType: any) => {
-        const userId = String(remoteUser.uid)
-        
-        if (mediaType === 'video') {
-          const track = remoteTracks.current[userId]
-          if (track) {
-            track.stop()
-            delete remoteTracks.current[userId]
-          }
-        }
+      client.current.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+        track.detach()
       })
-      
-      client.current.on('user-left', (remoteUser: any) => {
-        const userId = String(remoteUser.uid)
-        const track = remoteTracks.current[userId]
-        if (track) {
-          track.stop()
-          delete remoteTracks.current[userId]
-        }
-      })
-      
-      // Try join without token first (dev mode)
-      try {
-        await client.current.join(APP_ID, stream.agora_channel, null as any, user?.id)
-        console.log('Joined channel without token (development mode)')
-      } catch (tokenError: any) {
-        console.log('Token required, falling back to token authentication:', tokenError.message)
-
-        const j = await api.post(API_ENDPOINTS.livekit.token, {
-          channelName: stream.livekit_room,
-          uid: user?.id,
-          role: 'subscriber'
-        })
-        if (!j?.success || !j?.token) throw new Error(j?.error || 'Failed to get token')
-        const token = j.token as string
-        await client.current.join(APP_ID, stream.agora_channel, token, user?.id)
-        console.log('Joined channel with token')
-      }
 
     } catch (error: any) {
-      console.error('Agora viewer initialization error:', error)
-      if (error.message?.includes('CAN_NOT_GET_GATEWAY_SERVER')) {
-        toast.error('Stream connection failed. The broadcaster may be offline or there may be a configuration issue.')
-      } else {
-        toast.error('Failed to connect to stream')
-      }
+      console.error('LiveKit viewer initialization error:', error)
+      toast.error('Failed to connect to stream')
     }
   }
 
