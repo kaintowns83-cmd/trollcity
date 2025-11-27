@@ -1,0 +1,6 @@
+supabase/
+supabase/**
+EDGE_FUNCTIONS_DEPLOYMENT.md
+PRODUCTION_DEPLOYMENT.md
+*.sql
+scripts/
