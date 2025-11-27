@@ -68,14 +68,27 @@ const GoLive: React.FC = () => {
       // Build unique room name
       const roomName = `${profile.username}-${Date.now()}`.toLowerCase();
 
-      // CALL EDGE FUNCTION USING SUPABASE
-      const { data, error } = await supabase.functions.invoke('livekit', {
-        body: { identity: String(profile.id), room: roomName },
+      // CALL EDGE FUNCTION USING DIRECT FETCH
+      console.log("Calling LiveKit Edge Function:", `${EDGE_FUNCTION_URL}/livekit`);
+
+      const response = await fetch(`${EDGE_FUNCTION_URL}/livekit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwt}`, // using Supabase user JWT
+        },
+        body: JSON.stringify({
+          identity: String(profile.id),
+          roomName,
+        }),
       });
 
-      if (error) throw error;
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Function error: ${errorText}`);
+      }
 
-      const token = data.token;
+      const { token } = await response.json();
 
       // Create LiveKit room
       room.current = new Room();

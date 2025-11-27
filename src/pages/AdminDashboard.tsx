@@ -604,12 +604,31 @@ export default function AdminDashboard() {
 
   const testLiveKitStreaming = async () => {
     try {
-      const { data, error } = await supabase.functions.invoke('livekit', {
-        body: { identity: profile?.id || 'admin', room: 'admin-test' },
+      const EDGE_FUNCTION_URL = (import.meta as any).env.VITE_EDGE_FUNCTIONS_URL;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const jwt = sessionData?.session?.access_token;
+
+      if (!jwt) {
+        setAgoraStatus({ ok: false, error: 'No auth token' })
+        toast.error('LiveKit test failed')
+        return
+      }
+
+      const response = await fetch(`${EDGE_FUNCTION_URL}/livekit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          identity: profile?.id || 'admin',
+          roomName: 'admin-test',
+        }),
       });
 
-      if (error) {
-        setAgoraStatus({ ok: false, error: error.message || 'Token generation failed' })
+      if (!response.ok) {
+        const errorText = await response.text();
+        setAgoraStatus({ ok: false, error: `Function error: ${errorText}` })
         toast.error('LiveKit test failed')
       } else {
         setAgoraStatus({ ok: true })

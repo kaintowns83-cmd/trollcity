@@ -821,12 +821,30 @@ const StreamRoom = () => {
       client.current = new Room()
 
       // Get token
-      const { data, error } = await supabase.functions.invoke('livekit', {
-        body: { identity: user?.id, room: stream.livekit_room },
+      const EDGE_FUNCTION_URL = (import.meta as any).env.VITE_EDGE_FUNCTIONS_URL;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const jwt = sessionData?.session?.access_token;
+
+      if (!jwt) throw new Error('No auth token');
+
+      const response = await fetch(`${EDGE_FUNCTION_URL}/livekit`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({
+          identity: user?.id,
+          roomName: stream.livekit_room,
+        }),
       });
 
-      if (error) throw error;
-      const token = data.token;
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Function error: ${errorText}`);
+      }
+
+      const { token } = await response.json();
 
       // Connect to room
       await client.current.connect(LIVEKIT_URL, token)
