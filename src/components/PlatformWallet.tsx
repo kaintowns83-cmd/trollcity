@@ -52,7 +52,7 @@ const PlatformWallet = () => {
     try {
       const data = await api.get('/admin/platform-wallet')
       if (!data.success) throw new Error(data?.error || 'Failed to fetch platform wallet')
-      setWallet(data)
+      setWallet(data.data)
       setLastUpdate(new Date())
     } catch (err) {
       console.error('Platform wallet error:', err)

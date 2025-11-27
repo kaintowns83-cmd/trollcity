@@ -401,7 +401,7 @@ export default function AdminDashboard() {
       setEconomyLoading(true)
       const json = await (await import('../lib/api')).default.get('/admin/economy/summary')
       if (!json.success) throw new Error(json?.error || 'Failed to load economy summary')
-      setEconomySummary(json)
+      setEconomySummary(json.data)
     } catch (err: any) {
       console.error('Failed to load economy summary:', err)
     } finally {
@@ -470,7 +470,7 @@ export default function AdminDashboard() {
       try {
         const json = await (await import('../lib/api')).default.get('/admin/risk/overview')
         if (!json.success) throw new Error(json?.error || 'Failed risk')
-        setRisk(json)
+        setRisk(json.data)
       } catch (e) {
         console.error(e)
       }

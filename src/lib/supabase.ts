@@ -112,11 +112,12 @@ export interface CashoutTier {
   coin_amount: number
   cash_amount: number
   currency: string
-  processing_fee_percentage: number
+  processing_fee_percentage: number   // ← Correct and consistent
   is_active: boolean
   created_at: string
   updated_at: string
 }
+
 
 export interface WheelSlice {
   id: string

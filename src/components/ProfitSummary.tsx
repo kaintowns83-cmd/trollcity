@@ -30,7 +30,7 @@ const ProfitSummary = () => {
     try {
       const data = await api.get('/admin/profit-summary')
       if (!data.success) throw new Error(data?.error || 'Failed to fetch profit summary')
-      setSummary(data)
+      setSummary(data.data)
       setLastUpdate(new Date())
     } catch (error) {
       console.error('Error fetching profit summary:', error)

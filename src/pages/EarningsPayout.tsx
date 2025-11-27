@@ -1,4 +1,4 @@
-// src/pages/CashoutRequest.tsx
+// src/pages/EarningsPayout.tsx
 import React, { useMemo, useState, useEffect } from 'react'
 import { useAuthStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
@@ -22,7 +22,7 @@ const CASHOUT_TIERS: CashoutTier[] = [
   { id: 'tier4', coins: 47000, usd: 155, label: '47,000 Troll Coins → $155' },
 ]
 
-export default function CashoutRequest() {
+export default function EarningsPayout() {
   const { profile, user } = useAuthStore()
   const [payoutMethod, setPayoutMethod] = useState<PayoutMethod>('CashApp')
   const [payoutDetails, setPayoutDetails] = useState('')
@@ -78,12 +78,9 @@ export default function CashoutRequest() {
   const cancelRequest = async (id: string) => {
     if (!profile) return
     try {
-      const { data: sessionData } = await supabase.auth.getSession()
-      const token = sessionData?.session?.access_token || ''
       const j = await api.delete(`/payouts/cashouts/${id}`)
       if (!j.success) throw new Error(j?.error || 'Delete failed')
-        return
-      }
+
       toast.success('Cashout request cancelled')
       await loadRecent()
     } catch (e: any) {
@@ -131,7 +128,7 @@ export default function CashoutRequest() {
       const email = user?.email || ''
       const username = profile.username
 
-      const { data, error } = await supabase.from('cashout_requests').insert([
+      const { error } = await supabase.from('cashout_requests').insert([
         {
           user_id: profile.id,
           username,
@@ -141,12 +138,13 @@ export default function CashoutRequest() {
           payout_details: payoutDetails.trim(),
           requested_coins: tier.coins,
           usd_value: tier.usd,
+          status: 'pending',
         },
-      ]).select()
+      ])
 
       if (error) {
         console.error('Cashout request error:', error)
-        toast.error(`Database error: ${error.message}. Please contact admin.`)
+        toast.error(`Database error: ${error.message}`)
         throw error
       }
 
@@ -156,9 +154,7 @@ export default function CashoutRequest() {
       await loadRecent()
     } catch (err: any) {
       console.error('Cashout submission error:', err)
-      if (!err.message?.includes('Database error:')) {
-        toast.error(err.message || 'Failed to submit request.')
-      }
+      toast.error(err.message || 'Failed to submit request.')
     } finally {
       setLoading(false)
     }
@@ -167,6 +163,8 @@ export default function CashoutRequest() {
   return (
     <div className="min-h-screen bg-[#05030B] text-white p-6">
       <div className="max-w-4xl mx-auto space-y-6">
+
+        {/* Balance Summary */}
         <div className="bg-[#0E0A1A] rounded-xl border border-purple-700/40 p-6 shadow-xl">
           <h1 className="text-3xl font-extrabold mb-2 flex items-center gap-2">
             <DollarSign className="text-troll-gold w-7 h-7" />
@@ -180,15 +178,11 @@ export default function CashoutRequest() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div className="bg-[#151027] rounded-lg p-4 border border-purple-500/30">
               <p className="text-gray-400">Paid Troll Coins</p>
-              <p className="text-2xl font-bold text-troll-gold">
-                {paidCoins.toLocaleString()}
-              </p>
+              <p className="text-2xl font-bold text-troll-gold">{paidCoins.toLocaleString()}</p>
             </div>
             <div className="bg-[#101522] rounded-lg p-4 border border-green-500/20">
               <p className="text-gray-400">Free Coins (not cashout)</p>
-              <p className="text-xl font-semibold text-green-400">
-                {freeCoins.toLocaleString()}
-              </p>
+              <p className="text-xl font-semibold text-green-400">{freeCoins.toLocaleString()}</p>
             </div>
             <div className="bg-[#17131F] rounded-lg p-4 border border-indigo-500/20">
               <p className="text-gray-400">Eligible Tiers</p>
@@ -205,95 +199,70 @@ export default function CashoutRequest() {
             <Banknote className="text-troll-gold" />
             Request Manual Payout
           </h2>
-          <p className="text-xs text-gray-400">Temporary manual payouts are processed within 5 minutes.</p>
 
           <div className="mb-3">
-            {!eligibleTiers.length && (
-              <p className="text-sm text-red-400 mb-2">
-                You don’t have enough Troll Coins yet. Minimum is 7,000 Troll Coins for $21.
-              </p>
-            )}
             <label className="block text-sm mb-1">Select Cashout Tier</label>
             <select
-              className="w-full bg-[#171427] border border-purple-500/40 rounded-lg px-3 py-2 text-sm"
-              value={selectedTierId ?? ''}
-              onChange={e => setSelectedTierId(e.target.value)}
-            >
-              {CASHOUT_TIERS.map(tier => (
-                <option key={tier.id} value={tier.id} disabled={tier.coins > paidCoins}>
-                  {tier.label} {tier.coins > paidCoins ? '(not eligible)' : ''}
-                </option>
-              ))}
-            </select>
+  className="w-full bg-[#171427] border border-purple-500/40 rounded-lg px-3 py-2 text-sm"
+  value={selectedTierId ?? ''}
+  onChange={e => setSelectedTierId(e.target.value)}
+>
+  {CASHOUT_TIERS.map(tier => (
+    <option key={tier.id} value={tier.id} disabled={tier.coins > paidCoins}>
+      {tier.label} {tier.coins > paidCoins ? '(not eligible)' : ''}
+    </option>
+  ))}
+</select>
+
           </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm mb-1">Payout Method</label>
-                <select
-                  className="w-full bg-[#171427] border border-purple-500/40 rounded-lg px-3 py-2 text-sm"
-                  value={payoutMethod}
-                  onChange={e => setPayoutMethod(e.target.value as PayoutMethod)}
-                >
-                  <option value="CashApp">CashApp</option>
-                  <option value="PayPal">PayPal</option>
-                  <option value="Venmo">Venmo</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Full Name</label>
-                <input
-                  type="text"
-                  className="w-full bg-[#171427] border border-purple-500/40 rounded-lg px-3 py-2 text-sm"
-                  value={fullName}
-                  onChange={e => setFullName(e.target.value)}
-                  placeholder="Legal name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Payout Details</label>
-                <input
-                  type="text"
-                  className="w-full bg-[#171427] border border-purple-500/40 rounded-lg px-3 py-2 text-sm"
-                  value={payoutDetails}
-                  onChange={e => setPayoutDetails(e.target.value)}
-                  placeholder={placeholderForMethod(payoutMethod)}
-                />
-                <p className="text-[11px] text-gray-400 mt-1">
-                  We only store what you enter here so the admin can send manually.
-                </p>
-                <p className="text-[11px] text-red-400 mt-1">Users with bans or flags incur an extra 1% fee.</p>
-              </div>
-              </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs mb-3">
-            {CASHOUT_TIERS.map(t => (
-              <div key={t.id} className="bg-[#151027] rounded px-3 py-2 border border-purple-500/20 flex items-center justify-between">
-                <div>{t.label}</div>
-                <div className={t.coins <= paidCoins ? 'text-green-400' : 'text-gray-400'}>
-                  {t.coins <= paidCoins ? 'Eligible' : 'Locked'}
-                </div>
-              </div>
-            ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm mb-1">Payout Method</label>
+              <select
+                className="w-full bg-[#171427] border border-purple-500/40 rounded-lg px-3 py-2 text-sm"
+                value={payoutMethod}
+                onChange={e => setPayoutMethod(e.target.value as PayoutMethod)}
+              >
+                <option value="CashApp">CashApp</option>
+                <option value="PayPal">PayPal</option>
+                <option value="Venmo">Venmo</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Full Name</label>
+              <input
+                type="text"
+                className="w-full bg-[#171427] border border-purple-500/40 rounded-lg px-3 py-2 text-sm"
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Payout Details</label>
+              <input
+                type="text"
+                className="w-full bg-[#171427] border border-purple-500/40 rounded-lg px-3 py-2 text-sm"
+                value={payoutDetails}
+                onChange={e => setPayoutDetails(e.target.value)}
+                placeholder={placeholderForMethod(payoutMethod)}
+              />
+            </div>
           </div>
 
           <button
-            disabled={loading || !eligibleTiers.length}
+            disabled={loading}
             onClick={handleSubmit}
-            className="w-full mt-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-semibold py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-60"
+            className="w-full mt-2 bg-gradient-to-r from-purple-600 to-indigo-500 text-white py-2 rounded-lg flex items-center justify-center gap-2"
           >
-            {loading ? 'Submitting…' : <>
-              <Send className="w-4 h-4" />
-              Submit Cashout Request
-            </>}
+            {loading ? 'Submitting…' : <><Send className="w-4 h-4" />Submit Cashout Request</>}
           </button>
         </div>
 
         {/* Recent Requests */}
         <div className="bg-[#0E0A1A] rounded-xl border border-purple-700/40 p-6">
           <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-            <History className="text-troll-gold" />
-            Recent Cashout Requests
+            <History className="text-troll-gold" /> Recent Cashout Requests
           </h3>
           {recentRequests.length === 0 && (
             <p className="text-sm text-gray-400">No requests yet.</p>
@@ -308,36 +277,26 @@ export default function CashoutRequest() {
                   <p className="font-semibold">
                     {r.requested_coins.toLocaleString()} Troll Coins → ${Number(r.usd_value).toFixed(2)}
                   </p>
-                  <p className="text-[11px] text-gray-400">
-                    {r.payout_method} · {r.payout_details}
-                  </p>
+                  <p className="text-[11px] text-gray-400">{r.payout_method} · {r.payout_details}</p>
                 </div>
                 <div className="text-right text-[11px]">
-                  <span
-                    className={
-                      r.status === 'completed'
-                        ? 'text-green-400'
-                        : r.status === 'paid'
-                        ? 'text-purple-300'
-                        : r.status === 'processing'
-                        ? 'text-yellow-300'
-                        : 'text-orange-300'
-                    }
-                  >
+                  <span className={r.status === 'completed'
+                    ? 'text-green-400'
+                    : r.status === 'paid'
+                    ? 'text-purple-300'
+                    : r.status === 'processing'
+                    ? 'text-yellow-300'
+                    : 'text-orange-300'}>
                     {r.status.toUpperCase()}
                   </span>
-                  <div className="text-gray-500">
-                    {new Date(r.created_at).toLocaleDateString()}
-                  </div>
+                  <div>{new Date(r.created_at).toLocaleDateString()}</div>
                   {(r.status === 'pending' || r.status === 'processing') && (
-                    <div className="mt-2">
-                      <button
-                        onClick={() => cancelRequest(r.id)}
-                        className="px-2 py-1 text-xs rounded bg-red-600 hover:bg-red-700"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => cancelRequest(r.id)}
+                      className="px-2 py-1 mt-2 rounded bg-red-600 hover:bg-red-700"
+                    >
+                      Cancel
+                    </button>
                   )}
                 </div>
               </div>
