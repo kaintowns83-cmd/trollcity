@@ -7,9 +7,9 @@ import { useAuthStore } from "../lib/store";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
-import api from "../lib/api";
-import { API_ENDPOINTS } from "../lib/apiConfig"; // 🔹 Added this import
+import api, { API_ENDPOINTS } from "../lib/api";   // <-- FIXED import
 import ClickableUsername from "../components/ClickableUsername";
+
 
 const APP_ID = import.meta.env.VITE_AGORA_APP_ID;
 
