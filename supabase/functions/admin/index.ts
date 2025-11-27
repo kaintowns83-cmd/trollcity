@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    const pathname = url.pathname.replace('/admin/', ''); // Remove /admin/ prefix
+    const pathname = url.pathname.includes('/admin/') ? url.pathname.split('/admin/')[1] : '';
 
     // /profit-summary
     if (pathname === 'profit-summary' && req.method === 'GET') {
