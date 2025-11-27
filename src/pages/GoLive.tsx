@@ -7,10 +7,14 @@ import { useAuthStore } from "../lib/store";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import api, { API_ENDPOINTS } from "../lib/api";
 import ClickableUsername from "../components/ClickableUsername";
 
 const APP_ID = import.meta.env.VITE_AGORA_APP_ID;
 const EDGE_FUNCTION_URL = import.meta.env.VITE_EDGE_FUNCTIONS_URL;
+
+console.log("🟢 Agora APP_ID:", APP_ID);
+console.log("🟢 Edge Function URL:", EDGE_FUNCTION_URL);
 
 const GoLive: React.FC = () => {
   const { user, profile } = useAuthStore();
@@ -69,25 +73,14 @@ const GoLive: React.FC = () => {
       // Build unique channel name
       const channelName = `${profile.username}-${Date.now()}`.toLowerCase();
 
-      // CALL EDGE FUNCTION DIRECTLY
-      const response = await fetch(
-        `${EDGE_FUNCTION_URL}/agora`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${jwt}`,
-          },
-          body: JSON.stringify({
-            channelName,
-            uid: String(profile.id),
-            role: "publisher",
-          }),
-        }
-      );
+      // CALL EDGE FUNCTION USING API SYSTEM
+      const result = await api.post(API_ENDPOINTS.agora.token, {
+        channelName,
+        uid: String(profile.id),
+        role: "publisher",
+      });
 
-      const result = await response.json();
-      if (!response.ok || !result?.token) {
+      if (!result?.success || !result?.token) {
         throw new Error(result?.error || "Failed to obtain Agora token");
       }
 
