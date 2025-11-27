@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import api from "../lib/api";
+import { API_ENDPOINTS } from "../lib/apiConfig"; // 🔹 Added this import
 import ClickableUsername from "../components/ClickableUsername";
 
 const APP_ID = import.meta.env.VITE_AGORA_APP_ID;
@@ -18,7 +19,9 @@ const GoLive: React.FC = () => {
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("Just Chatting");
   const [multiBeam, setMultiBeam] = useState(false);
-  const [beamBoxes, setBeamBoxes] = useState<{ id: string; userId?: string; username?: string; w: number; h: number }[]>([]);
+  const [beamBoxes, setBeamBoxes] = useState<
+    { id: string; userId?: string; username?: string; w: number; h: number }[]
+  >([]);
   const [previewUser, setPreviewUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -32,48 +35,37 @@ const GoLive: React.FC = () => {
   useEffect(() => {
     if (!user) return;
     startPreview();
-    const stopPreviewSync = () => {
-      try {
-        localVideoTrack.current?.stop();
-        localVideoTrack.current?.close();
-        localAudioTrack.current?.close();
-      } catch {}
-    }
-    return stopPreviewSync;
+    return () => {
+      localVideoTrack.current?.stop();
+      localVideoTrack.current?.close();
+      localAudioTrack.current?.close();
+    };
   }, []);
 
   const startPreview = async () => {
     try {
-      // Create video track with optimizations
       localVideoTrack.current = await AgoraRTC.createCameraVideoTrack({
         encoderConfig: {
           width: 1280,
           height: 720,
           frameRate: 30,
           bitrateMin: 600,
-          bitrateMax: 1500
-        }
+          bitrateMax: 1500,
+        },
       });
-      
-      // Create audio track with echo cancellation
+
       localAudioTrack.current = await AgoraRTC.createMicrophoneAudioTrack({
-        encoderConfig: 'high_quality_stereo',
-        AEC: true, // Acoustic Echo Cancellation
-        ANS: true, // Automatic Noise Suppression
-        AGC: true  // Automatic Gain Control
+        encoderConfig: "high_quality_stereo",
+        AEC: true,
+        ANS: true,
+        AGC: true,
       });
-      
+
       localVideoTrack.current?.play(videoRef.current!);
     } catch (err) {
       console.error(err);
       toast.error("Camera or Mic permission blocked.");
     }
-  };
-
-  const stopPreview = async () => {
-    localVideoTrack.current?.stop();
-    localVideoTrack.current?.close();
-    localAudioTrack.current?.close();
   };
 
   const handleGoLive = async () => {
@@ -82,45 +74,53 @@ const GoLive: React.FC = () => {
 
     setLoading(true);
     try {
-      const base = (profile?.username || "stream").replace(/[^a-z0-9_-]/gi, "").toLowerCase();
+      const base = (profile?.username || "stream")
+        .replace(/[^a-z0-9_-]/gi, "")
+        .toLowerCase();
       const channelName = `${base}-${Date.now()}`;
 
-      const j = await api.post('/agora/agora-token', { channelName, userId: String(profile?.id), role: 'publisher' })
-      if (!j?.success || !j?.token) {
-        throw new Error(j?.error || 'Failed to get Agora token')
+      // 🔹 Corrected API call — using API_ENDPOINTS, not hardcoded string
+      const tokenRes = await api.post(API_ENDPOINTS.agora.token, {
+        channelName,
+        userId: String(profile?.id),
+        role: "publisher",
+      });
+
+      if (!tokenRes?.success || !tokenRes?.token) {
+        throw new Error(tokenRes?.error || "Failed to get Agora token");
       }
 
-      const token = j.token as string
-      client.current.setClientRole('host')
+      const token = tokenRes.token as string;
+      client.current.setClientRole("host");
       await client.current.join(APP_ID, channelName, token, String(profile?.id));
       await client.current.publish([
         localVideoTrack.current!,
         localAudioTrack.current!,
       ]);
 
+      // Insert stream row into Supabase
       const { data: streamRow, error } = await supabase
-        .from('streams')
+        .from("streams")
         .insert({
           broadcaster_id: profile!.id,
           title: title.trim(),
           category,
           multi_beam: multiBeam,
-          status: 'live',
+          status: "live",
           agora_channel: channelName,
-          agora_token: token
+          agora_token: token,
         })
         .select()
-        .single()
+        .single();
 
-      if (error) throw error
+      if (error) throw error;
 
       setIsLive(true);
       toast.success("You are now LIVE!");
       navigate(`/stream/${streamRow.id}`, { state: { stream: streamRow } });
     } catch (err: any) {
       console.error(err);
-      const msg = err?.message || 'Failed to Go Live.'
-      toast.error(msg);
+      toast.error(err?.message || "Failed to Go Live.");
     } finally {
       setLoading(false);
     }
@@ -128,9 +128,8 @@ const GoLive: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-gradient-to-br from-[#0f0f1a] via-[#1a0f2a] to-[#082016] text-white px-6">
-      
       <div className="flex flex-col md:flex-row items-center gap-8 w-full max-w-6xl">
-
+        
         {/* 🎥 Video Preview */}
         <div
           ref={videoRef}
@@ -139,68 +138,37 @@ const GoLive: React.FC = () => {
           {!localVideoTrack.current && (
             <p className="text-gray-400 animate-pulse">Camera Preview</p>
           )}
+
+          {/* 📦 Multi-Beam Boxes */}
           {multiBeam && (
-            <div className="absolute inset-0 p-2 grid grid-cols-4 grid-rows-4 gap-1 pointer-events-auto">
+            <div className="absolute inset-0 p-2 grid grid-cols-4 grid-rows-4 gap-1">
               {beamBoxes.map((b, idx) => (
                 <div
                   key={b.id}
                   className="relative bg-black/50 border border-purple-600 rounded-lg overflow-hidden"
                   style={{
-                    gridColumn: idx === 0 ? 'span 2' : 'span 1',
-                    gridRow: idx === 0 ? 'span 2' : 'span 1'
+                    gridColumn: idx === 0 ? "span 2" : "span 1",
+                    gridRow: idx === 0 ? "span 2" : "span 1",
                   }}
                 >
                   <button
                     className="absolute top-1 left-1 text-[10px] bg-purple-900/70 px-2 py-1 rounded"
                     onClick={async () => {
-                      if (!b.username) return
+                      if (!b.username) return;
                       try {
                         const { data } = await supabase
-                          .from('user_profiles')
-                          .select('*')
-                          .eq('username', b.username)
-                          .maybeSingle()
-                        setPreviewUser(data || null)
-                      } catch { setPreviewUser(null) }
+                          .from("user_profiles")
+                          .select("*")
+                          .eq("username", b.username)
+                          .maybeSingle();
+                        setPreviewUser(data || null);
+                      } catch {
+                        setPreviewUser(null);
+                      }
                     }}
                   >
-                    {b.username || 'Empty'}
+                    {b.username || "Empty"}
                   </button>
-                  {b.username && (
-                    <button
-                      className="absolute top-1 right-1 text-[10px] bg-green-700/70 px-2 py-1 rounded"
-                      onClick={async () => {
-                        try {
-                          const { data } = await supabase
-                            .from('user_profiles')
-                            .select('*')
-                            .eq('id', b.userId)
-                            .maybeSingle()
-                          setPreviewUser(data || null)
-                        } catch { setPreviewUser(null) }
-                      }}
-                    >
-                      View
-                    </button>
-                  )}
-                  <div className="absolute bottom-1 left-1 right-1 flex items-center gap-2 px-2">
-                    <input
-                      type="range"
-                      min={40}
-                      max={100}
-                      value={b.w}
-                      onChange={(e) => setBeamBoxes((prev) => prev.map(x => x.id===b.id?{...x, w: Number(e.target.value)}:x))}
-                      className="flex-1"
-                    />
-                    <input
-                      type="range"
-                      min={40}
-                      max={100}
-                      value={b.h}
-                      onChange={(e) => setBeamBoxes((prev) => prev.map(x => x.id===b.id?{...x, h: Number(e.target.value)}:x))}
-                      className="flex-1"
-                    />
-                  </div>
                 </div>
               ))}
             </div>
@@ -209,7 +177,6 @@ const GoLive: React.FC = () => {
 
         {/* ⚙️ Settings Panel */}
         <div className="bg-black/60 backdrop-blur-xl p-6 rounded-xl border border-purple-500/50 shadow-[0_0_30px_rgba(0,255,170,0.4)] w-[350px]">
-          
           <h2 className="text-xl font-semibold text-purple-300 mb-4">
             Go Live Settings
           </h2>
@@ -217,8 +184,7 @@ const GoLive: React.FC = () => {
           <label className="text-sm">Stream Title</label>
           <input
             type="text"
-            className="w-full bg-gray-900 text-white p-2 rounded mb-3 border border-purple-600
-            focus:ring-2 focus:ring-green-400"
+            className="w-full bg-gray-900 text-white p-2 rounded mb-3 border border-purple-600 focus:ring-2 focus:ring-green-400"
             placeholder="Enter your stream title..."
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -226,8 +192,7 @@ const GoLive: React.FC = () => {
 
           <label className="text-sm">Category</label>
           <select
-            className="w-full bg-gray-900 text-white p-2 rounded mb-5 border border-purple-600
-            focus:ring-2 focus:ring-green-400"
+            className="w-full bg-gray-900 text-white p-2 rounded mb-5 border border-purple-600 focus:ring-2 focus:ring-green-400"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
           >
@@ -248,52 +213,25 @@ const GoLive: React.FC = () => {
             <label className="text-sm">Enable Multi Beams (14 boxes)</label>
             <button
               onClick={() => {
-                const next = !multiBeam
-                setMultiBeam(next)
+                const next = !multiBeam;
+                setMultiBeam(next);
                 if (next && beamBoxes.length === 0) {
-                  // Create 14 beam boxes
                   const boxes = Array.from({ length: 14 }, (_, i) => ({
                     id: `b${i + 1}`,
-                    w: i === 0 ? 50 : 25, // First box bigger
+                    w: i === 0 ? 50 : 25,
                     h: i === 0 ? 50 : 25,
-                    username: undefined,
-                    userId: undefined
-                  }))
-                  setBeamBoxes(boxes)
+                  }));
+                  setBeamBoxes(boxes);
                 }
               }}
-              className={`px-3 py-1 rounded ${multiBeam? 'bg-green-700':'bg-gray-700'} text-white text-xs`}
+              className={`px-3 py-1 rounded ${
+                multiBeam ? "bg-green-700" : "bg-gray-700"
+              } text-white text-xs`}
             >
-              {multiBeam ? 'On' : 'Off'}
+              {multiBeam ? "On" : "Off"}
             </button>
           </div>
 
-          {multiBeam && (
-            <div className="space-y-2 mb-4">
-              <button
-                onClick={() => setBeamBoxes(prev => [...prev, { id: `b${prev.length+1}`, w: 50, h: 50 }])}
-                className="w-full py-1 rounded bg-purple-700 text-white text-xs"
-              >
-                Add Box
-              </button>
-              <div className="grid grid-cols-2 gap-2">
-                {beamBoxes.map(b => (
-                  <div key={b.id} className="p-2 bg-[#0D0D0D] rounded border border-purple-700/50">
-                    <div className="text-xs mb-1">Box {b.id.toUpperCase()}</div>
-                    <input
-                      type="text"
-                      placeholder="Assign username"
-                      className="w-full bg-gray-900 text-white p-1 rounded border border-purple-600 text-xs"
-                      value={b.username || ''}
-                      onChange={(e) => setBeamBoxes(prev => prev.map(x => x.id===b.id?{...x, username: e.target.value}:x))}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 🔘 Live Button */}
           <button
             onClick={handleGoLive}
             disabled={loading}
@@ -313,26 +251,34 @@ const GoLive: React.FC = () => {
           <div className="w-[360px] bg-[#121212] border border-purple-600 rounded-xl p-4">
             <div className="flex items-center gap-3 mb-2">
               <div className="w-10 h-10 rounded-full overflow-hidden border border-purple-600">
-                <img src={previewUser.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${previewUser.username}`} className="w-full h-full object-cover" />
+                <img
+                  src={
+                    previewUser.avatar_url ||
+                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${previewUser.username}`
+                  }
+                  className="w-full h-full object-cover"
+                />
               </div>
               <div className="font-semibold">
-                <ClickableUsername username={previewUser.username} className="text-white" />
+                <ClickableUsername
+                  username={previewUser.username}
+                  className="text-white"
+                />
               </div>
-              <span className="ml-auto text-xs px-2 py-1 rounded bg-purple-800/60 border border-purple-500">{previewUser.role}</span>
             </div>
-            <div className="text-xs text-gray-300 mb-3">{previewUser.bio || 'No bio'}</div>
-            <div className="text-xs text-gray-300 mb-2">Perks: {(() => {
-              const perks: string[] = []
-              try {
-                if (localStorage.getItem(`tc-ghost-mode-${previewUser.id}`)) perks.push('Ghost Mode')
-                if (localStorage.getItem(`tc-disappear-chat-${previewUser.id}`)) perks.push('Disappearing Chats')
-                if (localStorage.getItem(`tc-message-admin-${previewUser.id}`)) perks.push('Message Admin')
-              } catch {}
-              return perks.length ? perks.join(', ') : 'None'
-            })()}</div>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setPreviewUser(null)} className="px-3 py-1 rounded bg-[#2C2C2C] text-white text-xs">Close</button>
-              <button onClick={() => navigate(`/profile/${previewUser.username}`)} className="px-3 py-1 rounded bg-purple-600 text-white text-xs">Open Profile</button>
+              <button
+                onClick={() => setPreviewUser(null)}
+                className="px-3 py-1 rounded bg-[#2C2C2C] text-white text-xs"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => navigate(`/profile/${previewUser.username}`)}
+                className="px-3 py-1 rounded bg-purple-600 text-white text-xs"
+              >
+                Open Profile
+              </button>
             </div>
           </div>
         </div>
