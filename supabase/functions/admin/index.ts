@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient } from ;"jsr:@supabase/supabase-js@2"
 
 Deno.serve(async (req) => {
   const supabase = createClient(
@@ -20,10 +20,10 @@ Deno.serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    const path = url.pathname.split('/').filter(p => p).pop(); // Get the last path segment
+    const pathname = url.pathname.replace('/admin/', ''); // Remove /admin/ prefix
 
     // /profit-summary
-    if (path === 'profit-summary' && req.method === 'GET') {
+    if (pathname === 'profit-summary' && req.method === 'GET') {
       // Get profit summary data
       const [
         coinSalesRes,
@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
     }
 
     // /testing-mode/status
-    if (path === 'testing-mode' && req.method === 'GET') {
+    if (pathname === 'testing-mode/status' && req.method === 'GET') {
       const { data: testingModeSettings } = await supabase
         .from('app_settings')
         .select('value')
@@ -71,13 +71,80 @@ Deno.serve(async (req) => {
 
       const testingMode = testingModeSettings?.value || { enabled: false, signup_limit: 15, current_signups: 0 };
 
-      return new Response(JSON.stringify(testingMode), {
+      // Get actual test users count
+      const { data: testUsers } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('is_test_user', true);
+
+      const actualTestUsers = testUsers?.length || 0;
+
+      return new Response(JSON.stringify({
+        testingMode,
+        benefits: { free_coins: 5000, bypass_family_fee: true, bypass_admin_message_fee: true },
+        actualTestUsers
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // /testing-mode/toggle
+    if (pathname === 'testing-mode/toggle' && req.method === 'POST') {
+      const body = await req.json();
+      const { enabled, resetCounter } = body;
+
+      let currentSettings = { enabled: false, signup_limit: 15, current_signups: 0 };
+      const { data: existing } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'testing_mode')
+        .single();
+
+      if (existing) {
+        currentSettings = existing.value;
+      }
+
+      const newSettings = {
+        ...currentSettings,
+        enabled,
+        current_signups: resetCounter ? 0 : currentSettings.current_signups
+      };
+
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'testing_mode', value: newSettings });
+
+      if (error) throw error;
+
+      return new Response(JSON.stringify({ testingMode: newSettings }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // /testing-mode/reset-counter
+    if (pathname === 'testing-mode/reset-counter' && req.method === 'POST') {
+      const { data: existing } = await supabase
+        .from('app_settings')
+        .select('value')
+        .eq('key', 'testing_mode')
+        .single();
+
+      const currentSettings = existing?.value || { enabled: false, signup_limit: 15, current_signups: 0 };
+      const newSettings = { ...currentSettings, current_signups: 0 };
+
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({ key: 'testing_mode', value: newSettings });
+
+      if (error) throw error;
+
+      return new Response(JSON.stringify({ testingMode: newSettings }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     // /risk/overview
-    if (path === 'risk' && req.method === 'GET') {
+    if (pathname === 'risk/overview' && req.method === 'GET') {
       const { data: frozenUsers } = await supabase
         .from('user_profiles')
         .select('id')
@@ -98,7 +165,7 @@ Deno.serve(async (req) => {
     }
 
     // /economy/summary
-    if (path === 'economy' && req.method === 'GET') {
+    if (pathname === 'economy/summary' && req.method === 'GET') {
       // Get paid coins data
       const { data: paidCoinsTx } = await supabase
         .from('coin_transactions')
