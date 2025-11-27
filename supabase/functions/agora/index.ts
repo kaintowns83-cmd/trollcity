@@ -61,11 +61,11 @@ Deno.serve(async (req) => {
       });
     }
 
-    const appId = Deno.env.get('AGORA_APP_ID') || '7b95b64b0e154f7ab931e2abf000e694';
-    const appCertificate = Deno.env.get('AGORA_APP_CERTIFICATE');
+    const APP_ID = Deno.env.get('AGORA_APP_ID')!;
+    const APP_CERTIFICATE = Deno.env.get('AGORA_APP_CERTIFICATE')!;
 
-    if (!appCertificate) {
-      return new Response(JSON.stringify({ error: 'Agora app certificate not configured' }), {
+    if (!APP_ID || !APP_CERTIFICATE) {
+      return new Response(JSON.stringify({ error: 'Agora app ID and certificate not configured' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -75,8 +75,8 @@ Deno.serve(async (req) => {
     const expireTime = Math.floor(Date.now() / 1000) + 86400;
 
     const token = await generateAgoraToken(
-      appId,
-      appCertificate,
+      APP_ID,
+      APP_CERTIFICATE,
       channelName,
       parseInt(uid),
       role,
@@ -85,7 +85,7 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       token,
-      appId,
+      appId: APP_ID,
       channelName,
       uid,
       expiresAt: new Date(expireTime * 1000).toISOString()
