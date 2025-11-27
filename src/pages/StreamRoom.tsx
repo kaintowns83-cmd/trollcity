@@ -886,10 +886,10 @@ const StreamRoom = () => {
         console.log('Joined channel without token (development mode)')
       } catch (tokenError: any) {
         console.log('Token required, falling back to token authentication:', tokenError.message)
-        
-        const j = await api.post('/agora/agora-token', {
+
+        const j = await api.post('/agora', {
           channelName: stream.agora_channel,
-          userId: user?.id,
+          uid: user?.id,
           role: 'subscriber'
         })
         if (!j?.success || !j?.token) throw new Error(j?.error || 'Failed to get token')

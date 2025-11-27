@@ -29,7 +29,7 @@ const deductCoins = async (params: any) => {
     amount: -amount,
     type,
     coin_type: coinType,
-    metadata
+    metadata,
   });
   
   return { success: true };
@@ -61,7 +61,7 @@ const addCoins = async (params: any) => {
     amount,
     type,
     coin_type: coinType,
-    metadata
+    metadata,
   });
   
   return { success: true };
