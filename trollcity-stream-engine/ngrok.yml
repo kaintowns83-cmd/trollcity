@@ -1,0 +1,10 @@
+version: 3
+agent:
+  authtoken: 365zMfQY2VoDyTs4diYrMrdfoSJ_2odRq8sDEEjVdpBQv2G18
+tunnels:
+  signaling:
+    proto: http
+    addr: 4000
+  media:
+    proto: udp
+    addr: 40000-40050

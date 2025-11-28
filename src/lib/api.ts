@@ -1,5 +1,7 @@
 import { supabase } from './supabase'
 
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
 // Normalize base URL, remove trailing slash if needed
 const API_BASE_URL = import.meta.env.VITE_EDGE_FUNCTIONS_URL?.replace(/\/$/, '') 
   || 'https://yjxpwfalenorzrqxwmtr.supabase.co/functions/v1';
@@ -12,7 +14,7 @@ export const API_ENDPOINTS = {
     status: '/payments/status',
   },
   livekit: {
-    token: '/livekit',   // 👈 Correct path for STREAM token
+    token: '/livekit-token',   // 👈 Correct path for STREAM token
   },
   stream: {
     create: '/stream/create',      // 👈 You’ll use this soon
@@ -54,11 +56,11 @@ async function request<T = any>(
       url += `?${queryString}`;
     }
 
-    // Supabase session token
+    // Supabase session token or anon key for public functions
     const { data: sessionData } = await supabase.auth.getSession();
     const token =
       sessionData?.session?.access_token ||
-      (typeof window !== 'undefined' ? localStorage.getItem('sb-access-token') || '' : '');
+      (typeof window !== 'undefined' ? localStorage.getItem('sb-access-token') || supabaseAnonKey : supabaseAnonKey);
 
     const response = await fetch(url, {
       ...fetchOptions,

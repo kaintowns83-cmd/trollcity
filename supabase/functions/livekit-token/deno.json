@@ -1,0 +1,7 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom"]
+  },
+  "env": ["LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "LIVEKIT_CLOUD_URL"],
+  "verify_jwt": false
+}

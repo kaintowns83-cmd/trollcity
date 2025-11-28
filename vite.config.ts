@@ -22,6 +22,7 @@ export default defineConfig({
     // }),
     // tsconfigPaths(),
   ],
+  base: '/',
   server: {
     host: 'localhost',
     port: 5174,
@@ -56,5 +57,9 @@ export default defineConfig({
         },
       },
     },
+  },
+  build: {
+    outDir: 'dist',
+    assetsDir: 'assets'
   },
 })
