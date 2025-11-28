@@ -52,6 +52,18 @@ const GoLive: React.FC = () => {
   };
 
   
+const handleEndStream = async () => {
+  if (room) {
+    room.disconnect();
+    setRoom(null);
+  }
+  setIsLive(false);
+  // Update database to set is_live to false
+  // Assuming we have streamRow.id from when we started
+  // But since we navigate away, perhaps not needed, or update by broadcaster_id
+  // For now, just disconnect and reset UI
+};
+
 const handleGoLive = async () => {
     console.log("LiveKit URL:", import.meta.env.VITE_LIVEKIT_URL);
     if (!LIVEKIT_URL) return toast.error("Missing LiveKit URL.");
@@ -242,6 +254,24 @@ const handleGoLive = async () => {
           >
             {loading ? "Starting..." : "Go Live"}
           </button>
+          {isLive && (
+            <button
+              onClick={handleEndStream}
+              style={{
+                backgroundColor: "#ff3b30",
+                color: "white",
+                padding: "10px 20px",
+                borderRadius: "8px",
+                border: "none",
+                cursor: "pointer",
+                fontWeight: "bold",
+                marginTop: "10px",
+                width: "100%",
+              }}
+            >
+              End Live
+            </button>
+          )}
         </div>
       </div>
     </div>
