@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { connect, Room, createLocalVideoTrack, createLocalAudioTrack } from "livekit-client";
+import { Room, createLocalVideoTrack, createLocalAudioTrack } from "livekit-client";
 import { useAuthStore } from "../lib/store";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -99,7 +99,8 @@ const handleGoLive = async () => {
         roomName,
       });
 
-      const room = await connect(url, token, { adaptiveStream: true });
+      const room = new Room({ adaptiveStream: true });
+      await room.connect(url, token);
 
       // Get local tracks
       const localVideoTrack = await createLocalVideoTrack();
