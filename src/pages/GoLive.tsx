@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Room, createLocalVideoTrack, createLocalAudioTrack } from "livekit-client";
+import { connect, Room, createLocalVideoTrack, createLocalAudioTrack } from "livekit-client";
 import { useAuthStore } from "../lib/store";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
@@ -16,6 +16,7 @@ console.log("🟢 LiveKit Token Endpoint:", LIVEKIT_TOKEN_ENDPOINT);
 const GoLive: React.FC = () => {
   const { user, profile } = useAuthStore();
   const [isLive, setIsLive] = useState(false);
+  const [liveKitRoom, setLiveKitRoom] = useState<Room | null>(null);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("Just Chatting");
   const [multiBeam, setMultiBeam] = useState(false);
@@ -35,11 +36,11 @@ const GoLive: React.FC = () => {
     if (!user) return;
     startPreview();
     return () => {
-      if (room.current) {
-        room.current.disconnect();
+      if (liveKitRoom) {
+        liveKitRoom.disconnect();
       }
     };
-  }, [user]);
+  }, [user, liveKitRoom]);
 
   const startPreview = async () => {
     try {
@@ -52,7 +53,8 @@ const GoLive: React.FC = () => {
     }
   };
 
-  const handleGoLive = async () => {
+  
+const handleGoLive = async () => {
     console.log("LiveKit URL:", import.meta.env.VITE_LIVEKIT_URL);
     if (!LIVEKIT_URL) return toast.error("Missing LiveKit URL.");
     if (!title.trim()) return toast.error("Enter a stream title.");
@@ -63,37 +65,49 @@ const GoLive: React.FC = () => {
       // Build unique room name
       const roomName = `${profile.username}-${Date.now()}`.toLowerCase();
 
-      // CALL LIVEKIT TOKEN API
-      console.log("Calling LiveKit Token API:", `${LIVEKIT_TOKEN_ENDPOINT}?room=${roomName}&identity=${profile.username}`);
+      // CALL LIVEKIT TOKEN API (Vercel serverless)
+      const endpoint = `${LIVEKIT_TOKEN_ENDPOINT}?room=${roomName}&identity=${profile.username}`;
+      console.log("Calling LiveKit Token API:", endpoint);
 
-      const response = await fetch(
-        `${LIVEKIT_TOKEN_ENDPOINT}?room=${roomName}&identity=${profile.username}`
-      );
+      const response = await fetch(endpoint, { method: "GET" });
+
+      const raw = await response.text();
+      console.log("LiveKit token raw response:", raw);
 
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status} - ${await response.text()}`);
+        throw new Error(`LiveKit token API error ${response.status}: ${raw.slice(0, 200)}`);
       }
 
-      const { token, url } = await response.json();
+      let parsed: { token?: string; url?: string };
+      try {
+        parsed = JSON.parse(raw);
+      } catch (e) {
+        console.error("Failed to parse LiveKit token JSON:", e);
+        throw new Error("LiveKit token endpoint did not return valid JSON.");
+      }
+
+      const { token, url } = parsed;
+
+      if (!token || !url) {
+        throw new Error("LiveKit token endpoint returned missing token or URL.");
+      }
 
       console.log("🔐 Final Stream Connect Values:", {
         url,
-        token: token?.slice(0, 25) + "...",
+        token: token.slice(0, 25) + "...",
         identity: profile.username,
         roomName,
       });
 
-      // Create LiveKit room
-      room.current = new Room({ adaptiveStream: true });
-      await room.current.connect(url, token);
+      const room = await connect(url, token, { adaptiveStream: true });
 
       // Get local tracks
       const localVideoTrack = await createLocalVideoTrack();
       const localAudioTrack = await createLocalAudioTrack();
 
       // Publish tracks
-      await room.current.localParticipant.publishTrack(localVideoTrack);
-      await room.current.localParticipant.publishTrack(localAudioTrack);
+      await room.localParticipant.publishTrack(localVideoTrack);
+      await room.localParticipant.publishTrack(localAudioTrack);
 
       // Save stream session in Supabase
       const { data: streamRow, error: insertError } = await supabase
@@ -112,6 +126,7 @@ const GoLive: React.FC = () => {
 
       if (insertError) throw insertError;
 
+      setLiveKitRoom(room);
       setIsLive(true);
       toast.success("🎉 You are LIVE!");
       navigate(`/stream/${streamRow.id}`, { state: { stream: streamRow } });
