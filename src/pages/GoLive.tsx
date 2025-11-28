@@ -8,10 +8,10 @@ import api, { API_ENDPOINTS } from "../lib/api";
 import ClickableUsername from "../components/ClickableUsername";
 
 const LIVEKIT_URL = import.meta.env.VITE_LIVEKIT_URL;
-const EDGE_FUNCTION_URL = import.meta.env.VITE_EDGE_FUNCTIONS_URL;
+const LIVEKIT_TOKEN_ENDPOINT = import.meta.env.VITE_LIVEKIT_TOKEN_ENDPOINT;
 
 console.log("🟢 LiveKit URL:", LIVEKIT_URL);
-console.log("🟢 Edge Function URL:", EDGE_FUNCTION_URL);
+console.log("🟢 LiveKit Token Endpoint:", LIVEKIT_TOKEN_ENDPOINT);
 
 const GoLive: React.FC = () => {
   const { user, profile } = useAuthStore();
@@ -68,31 +68,30 @@ const GoLive: React.FC = () => {
       // Build unique room name
       const roomName = `${profile.username}-${Date.now()}`.toLowerCase();
 
-      // CALL EDGE FUNCTION USING DIRECT FETCH
-      console.log("Calling LiveKit Edge Function:", `${EDGE_FUNCTION_URL}/livekit`);
+      // CALL LIVEKIT TOKEN API
+      console.log("Calling LiveKit Token API:", `${LIVEKIT_TOKEN_ENDPOINT}?room=${roomName}&identity=${profile.username}`);
 
-      const response = await fetch(`${EDGE_FUNCTION_URL}/livekit`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${jwt}`, // using Supabase user JWT
-        },
-        body: JSON.stringify({
-          identity: String(profile.id),
-          roomName,
-        }),
-      });
+      const response = await fetch(
+        `${LIVEKIT_TOKEN_ENDPOINT}?room=${roomName}&identity=${profile.username}`
+      );
 
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Function error: ${errorText}`);
       }
 
-      const { token } = await response.json();
+      const { token, url } = await response.json();
+
+      console.log("🔐 Final Stream Connect Values:", {
+        url,
+        token: token?.slice(0, 25) + "...",
+        identity: profile.username,
+        roomName,
+      });
 
       // Create LiveKit room
-      room.current = new Room();
-      await room.current.connect(LIVEKIT_URL, token);
+      room.current = new Room({ adaptiveStream: true });
+      await room.current.connect(url, token);
 
       // Get local tracks
       const localVideoTrack = await createLocalVideoTrack();
