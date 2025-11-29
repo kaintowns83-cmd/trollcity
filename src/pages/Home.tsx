@@ -186,10 +186,12 @@ export default function Home() {
         const { data, error } = await supabase
           .from('coin_transactions')
           .select(`
-            user_id,
+            id,
             amount,
             type,
-            user_profiles:user_id (
+            created_at,
+            user: user_id (
+              id,
               username,
               avatar_url
             )
@@ -207,8 +209,8 @@ export default function Home() {
             totals[uid] = {
               user_id: uid,
               total: 0,
-              username: tx.user_profiles?.username,
-              avatar_url: tx.user_profiles?.avatar_url,
+              username: tx.user?.username,
+              avatar_url: tx.user?.avatar_url,
             };
           }
           if (amt > 0) totals[uid].total += amt;

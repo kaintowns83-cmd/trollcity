@@ -533,7 +533,7 @@ export default function AdminDashboard() {
 
       const { data: topBuyers } = await supabase
         .from('coin_transactions')
-        .select('user_id, amount, user_profiles!inner(username)')
+        .select('user_id, amount, user: user_id (username)')
         .in('type', ['insurance_purchase', 'entrance_effect', 'perk_purchase'])
         .order('amount', { ascending: true })
         .limit(50)
@@ -543,7 +543,7 @@ export default function AdminDashboard() {
         const userId = t.user_id
         const existing =
           buyerMap.get(userId) || {
-            username: t.user_profiles?.username || 'Unknown',
+            username: t.user?.username || 'Unknown',
             total: 0,
           }
         existing.total += Math.abs(t.amount || 0)
