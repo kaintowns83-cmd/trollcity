@@ -121,21 +121,19 @@ const GoLive: React.FC = () => {
       await newRoom.connect(url, token);
 
       // 🎥 Try to get video track, but allow audio-only if webcam fails
-      let videoTrack = null;
+      let hasVideo = false;
       try {
-        videoTrack = await navigator.mediaDevices.getUserMedia({ video: true });
+        await navigator.mediaDevices.getUserMedia({ video: true });
+        hasVideo = true;
       } catch (err) {
         console.warn("No webcam detected, or permission denied. Going live with audio only.");
         toast.info("No webcam detected - going live with audio only!");
       }
 
-      // 🎤 Always try to get audio track
-      const audioConstraints = { audio: true };
-      const videoConstraints = videoTrack ? { video: true } : false;
-
+      // 🎤 Create tracks based on available hardware
       const tracks = await createLocalTracks({
-        audio: audioConstraints,
-        video: videoConstraints
+        audio: true,
+        video: hasVideo
       });
 
       tracks.forEach((track) => {
