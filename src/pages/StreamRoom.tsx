@@ -23,6 +23,7 @@ const StreamRoom = () => {
   const isHost = location.state?.isHost || false
 
   const remoteVideoRef = useRef<HTMLDivElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
   const client = useRef<any>(null)
 
   const [stream, setStream] = useState<Stream | null>(null)
@@ -264,7 +265,7 @@ const StreamRoom = () => {
     console.log('Connecting to LiveKit:', { wsUrl, roomName, isHost })
 
     try {
-      const { Room, RoomEvent, createLocalTracks } = await import('livekit-client')
+      const { Room, RoomEvent, createLocalVideoTrack, createLocalAudioTrack } = await import('livekit-client')
 
       // 1. Create Room client
       client.current = new Room({
@@ -275,10 +276,21 @@ const StreamRoom = () => {
       // 2. Set track subscription handlers BEFORE connecting
       client.current.on(RoomEvent.TrackSubscribed, (track, pub, participant) => {
         if (track.kind === 'video') {
-          const el = track.attach()
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.innerHTML = ''
-            remoteVideoRef.current.appendChild(el)
+          if (participant.isLocal) {
+            // Local preview
+            const videoElem = videoRef.current
+            if (videoElem) {
+              track.attach(videoElem)
+              videoElem.muted = true
+              videoElem.play()
+            }
+          } else {
+            // Remote viewers
+            const el = track.attach()
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.innerHTML = ''
+              remoteVideoRef.current.appendChild(el)
+            }
           }
         } else if (track.kind === 'audio') {
           track.attach()
@@ -347,10 +359,20 @@ const StreamRoom = () => {
       // 4. If host, publish local mic/camera tracks
       if (isHost) {
         try {
-          const tracks = await createLocalTracks({ audio: true, video: true })
-          for (const track of tracks) {
-            await client.current.localParticipant.publishTrack(track)
+          const videoTrack = await createLocalVideoTrack()
+          const audioTrack = await createLocalAudioTrack()
+
+          await client.current.localParticipant.publishTrack(videoTrack)
+          await client.current.localParticipant.publishTrack(audioTrack)
+
+          // 🟢 Attach local video to preview screen
+          const videoElem = videoRef.current
+          if (videoElem) {
+            videoTrack.attach(videoElem)
+            videoElem.muted = true
+            videoElem.play()
           }
+
           console.log('Published local tracks as host')
         } catch (trackErr: any) {
           console.error('Failed to publish tracks:', trackErr)
@@ -496,7 +518,19 @@ const StreamRoom = () => {
         {/* Video Streaming Area */}
         <div className="bg-gray-900 rounded-xl overflow-hidden border border-purple-500 shadow-lg">
           <div className="relative aspect-video">
-            <div ref={remoteVideoRef} className="w-full h-full bg-black"></div>
+            {/* Local video preview (for host) */}
+            {isHost && (
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full rounded-xl object-cover"
+              ></video>
+            )}
+            
+            {/* Remote video (for viewers or remote participants) */}
+            <div ref={remoteVideoRef} className={`w-full h-full bg-black ${isHost ? 'hidden' : ''}`}></div>
 
             {joining && (
               <div className="absolute inset-0 flex items-center justify-center bg-black/70">
