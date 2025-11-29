@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { Sparkles, Coins, Shield, Zap, Crown } from 'lucide-react'
+import { Sparkles, Coins } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import api from '../lib/api'
 import type { UserProfile as BaseUserProfile } from '../lib/supabase'
@@ -172,7 +172,7 @@ const TrollWheel = () => {
       
       console.log('[Wheel] Checking daily spins with token:', token.substring(0, 20) + '...')
       
-      const j = await api.get('/wheel-spins-left')
+      const j = await api.post('/wheel', { action: 'spins-left', user_id: profile.id })
       if (!j.success) {
         console.error('[Wheel] Status check failed:', j)
         // Fallback: compute spins used client-side
@@ -260,14 +260,7 @@ const TrollWheel = () => {
       console.log('[Wheel] Initiating spin:', { userId: profile.id, balance: profile.free_coin_balance, cost: SPIN_COST })
       console.log('[Wheel] Using token:', token.substring(0, 20) + '...')
       
-      const response = await fetch(`${import.meta.env.VITE_EDGE_FUNCTIONS_URL}/spin-wheel`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ user_id: profile.id }),
-      });
-      const j = await response.json();
+      const j = await api.post('/wheel', { action: 'spin', user_id: profile.id })
 
       console.log('[Wheel] API response:', j)
 

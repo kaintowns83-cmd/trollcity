@@ -24,6 +24,81 @@ Deno.serve(async (req: Request) => {
     const url = new URL(req.url);
     const pathname = url.pathname.includes('/admin/') ? url.pathname.split('/admin/')[1] : '';
 
+    if (req.method === 'POST') {
+      let body: any = {};
+      try { body = await req.json(); } catch (_) {}
+      const action = body?.action || '';
+      const command = body?.command || '';
+
+      if (action === 'testing-mode' && command === 'status') {
+        const { data: testingModeSettings } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'testing_mode')
+          .single();
+
+        const testingMode = testingModeSettings?.value || { enabled: false, signup_limit: 15, current_signups: 0 };
+
+        const { data: testUsers } = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('is_test_user', true);
+
+        const actualTestUsers = testUsers?.length || 0;
+
+        return new Response(JSON.stringify({
+          success: true,
+          testingMode,
+          benefits: { free_coins: 5000, bypass_family_fee: true, bypass_admin_message_fee: true },
+          actualTestUsers
+        }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      if (action === 'testing-mode' && command === 'toggle') {
+        const enabled = !!body?.enabled;
+        const resetCounter = !!body?.resetCounter;
+
+        let currentSettings = { enabled: false, signup_limit: 15, current_signups: 0 };
+        const { data: existing } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'testing_mode')
+          .single();
+        if (existing) currentSettings = existing.value;
+
+        const newSettings = {
+          ...currentSettings,
+          enabled,
+          current_signups: resetCounter ? 0 : currentSettings.current_signups
+        };
+
+        const { error } = await supabase
+          .from('app_settings')
+          .upsert({ key: 'testing_mode', value: newSettings });
+        if (error) throw error;
+
+        return new Response(JSON.stringify({ success: true, testingMode: newSettings }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+
+      if (action === 'testing-mode' && command === 'reset') {
+        const { data: existing } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('key', 'testing_mode')
+          .single();
+
+        const currentSettings = existing?.value || { enabled: false, signup_limit: 15, current_signups: 0 };
+        const newSettings = { ...currentSettings, current_signups: 0 };
+
+        const { error } = await supabase
+          .from('app_settings')
+          .upsert({ key: 'testing_mode', value: newSettings });
+        if (error) throw error;
+
+        return new Response(JSON.stringify({ success: true, testingMode: newSettings }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+    }
+
     // /profit-summary
     if (pathname === 'profit-summary' && req.method === 'GET') {
       // Get profit summary data
@@ -63,87 +138,6 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // /testing-mode/status
-    if (pathname === 'testing-mode/status' && req.method === 'GET') {
-      const { data: testingModeSettings } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'testing_mode')
-        .single();
-
-      const testingMode = testingModeSettings?.value || { enabled: false, signup_limit: 15, current_signups: 0 };
-
-      // Get actual test users count
-      const { data: testUsers } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .eq('is_test_user', true);
-
-      const actualTestUsers = testUsers?.length || 0;
-
-      return new Response(JSON.stringify({
-        testingMode,
-        benefits: { free_coins: 5000, bypass_family_fee: true, bypass_admin_message_fee: true },
-        actualTestUsers
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // /testing-mode/toggle
-    if (pathname === 'testing-mode/toggle' && req.method === 'POST') {
-      const body = await req.json();
-      const { enabled, resetCounter } = body;
-
-      let currentSettings = { enabled: false, signup_limit: 15, current_signups: 0 };
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'testing_mode')
-        .single();
-
-      if (existing) {
-        currentSettings = existing.value;
-      }
-
-      const newSettings = {
-        ...currentSettings,
-        enabled,
-        current_signups: resetCounter ? 0 : currentSettings.current_signups
-      };
-
-      const { error } = await supabase
-        .from('app_settings')
-        .upsert({ key: 'testing_mode', value: newSettings });
-
-      if (error) throw error;
-
-      return new Response(JSON.stringify({ testingMode: newSettings }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // /testing-mode/reset-counter
-    if (pathname === 'testing-mode/reset-counter' && req.method === 'POST') {
-      const { data: existing } = await supabase
-        .from('app_settings')
-        .select('value')
-        .eq('key', 'testing_mode')
-        .single();
-
-      const currentSettings = existing?.value || { enabled: false, signup_limit: 15, current_signups: 0 };
-      const newSettings = { ...currentSettings, current_signups: 0 };
-
-      const { error } = await supabase
-        .from('app_settings')
-        .upsert({ key: 'testing_mode', value: newSettings });
-
-      if (error) throw error;
-
-      return new Response(JSON.stringify({ testingMode: newSettings }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
 
     // /risk/overview
     if (pathname === 'risk/overview' && req.method === 'GET') {

@@ -868,30 +868,13 @@ const StreamRoom = () => {
         return
       }
 
-      const EDGE_FUNCTION_URL = (import.meta as any).env.VITE_EDGE_FUNCTIONS_URL
       const { data: sessionData } = await supabase.auth.getSession()
       const jwt = sessionData?.session?.access_token
-
       if (!jwt) throw new Error('No auth token')
 
-      const response = await fetch(`${EDGE_FUNCTION_URL}/livekit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`
-        },
-        body: JSON.stringify({
-          identity: user?.id,
-          roomName: stream.livekit_room
-        })
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Function error: ${errorText}`)
-      }
-
-      const { token } = await response.json()
+      const tokenResp = await api.post('/livekit-token', { room: stream.livekit_room, identity: user?.username })
+      if (!tokenResp.success) throw new Error(tokenResp.error || 'Token error')
+      const { token, livekitUrl } = tokenResp
 
       const { Room, RoomEvent } = await import('livekit-client')
 
@@ -917,7 +900,7 @@ const StreamRoom = () => {
       })
 
       // Connect to room AFTER handlers are registered
-      await client.current.connect(LIVEKIT_URL, token)
+      await client.current.connect(livekitUrl, token)
       console.log('Connected to LiveKit room')
     } catch (error: any) {
       console.error('LiveKit viewer initialization error:', error)

@@ -35,7 +35,7 @@ export function TestingModeControl() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session?.access_token) return
 
-      const data = await api.get('/admin/testing-mode/status')
+      const data = await api.post('/admin', { action: 'testing-mode', command: 'status' })
       if (data.success) {
         setTestingMode(data.testingMode)
         setBenefits(data.benefits)
@@ -61,7 +61,7 @@ export function TestingModeControl() {
         return
       }
 
-      const data = await api.post('/admin/testing-mode/toggle', { enabled, resetCounter })
+      const data = await api.post('/admin', { action: 'testing-mode', command: 'toggle', enabled, resetCounter })
       if (data.success) {
         setTestingMode(data.testingMode)
         toast.success(`Testing mode ${enabled ? 'enabled' : 'disabled'}${resetCounter ? ' and counter reset' : ''}`)
@@ -82,7 +82,7 @@ export function TestingModeControl() {
         return
       }
 
-      const data = await api.post('/admin/testing-mode/reset-counter')
+      const data = await api.post('/admin', { action: 'testing-mode', command: 'reset' })
       if (data.success) {
         setTestingMode(data.testingMode)
         toast.success('Signup counter reset to 0')

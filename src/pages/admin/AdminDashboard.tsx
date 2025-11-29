@@ -705,31 +705,9 @@ export default function AdminDashboard() {
 
   const testLiveKitStreaming = async () => {
     try {
-      const EDGE_FUNCTION_URL = (import.meta as any).env.VITE_EDGE_FUNCTIONS_URL
-      const { data: sessionData } = await supabase.auth.getSession()
-      const jwt = sessionData?.session?.access_token
-
-      if (!jwt) {
-        setAgoraStatus({ ok: false, error: 'No auth token' })
-        toast.error('LiveKit test failed')
-        return
-      }
-
-      const response = await fetch(`${EDGE_FUNCTION_URL}/livekit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({
-          identity: profile?.id || 'admin',
-          roomName: 'admin-test',
-        }),
-      })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        setAgoraStatus({ ok: false, error: `Function error: ${errorText}` })
+      const tokenResp = await api.post('/livekit-token', { room: 'admin-test', identity: profile?.username || 'admin' })
+      if (!tokenResp.success) {
+        setAgoraStatus({ ok: false, error: tokenResp.error || 'Token error' })
         toast.error('LiveKit test failed')
       } else {
         setAgoraStatus({ ok: true })
@@ -862,7 +840,7 @@ export default function AdminDashboard() {
       if (cashoutsProvider) query = query.eq('payout_method', cashoutsProvider)
       if (cashoutsSearch)
         query = query.or(
-          `username.ilike.%${cashoutsSearch}%,email.ilike.%${cashoutsSearch}%,payout_details.ilike.%${cashoutsSearch}%`
+          `username.ilike.*${cashoutsSearch}*,email.ilike.*${cashoutsSearch}*,payout_details.ilike.*${cashoutsSearch}*`
         )
       const { data } = await query
       setCashouts(data || [])

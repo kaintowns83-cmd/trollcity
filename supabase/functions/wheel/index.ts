@@ -83,30 +83,22 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const authHeader = req.headers.get('Authorization') || '';
+    const authHeader = req.headers.get('authorization') || req.headers.get('Authorization') || '';
     const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-    
     if (!token) {
-      return new Response(JSON.stringify({ error: 'Missing Authorization bearer token' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-
     const { data: authData, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !authData.user) {
-      return new Response(JSON.stringify({ error: 'Invalid token' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    if (authError || !authData?.user) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
-
     const userId = authData.user.id;
-    const url = new URL(req.url);
-    const path = url.pathname.split('/').pop();
+    let body: any = {};
+    try { body = await req.json(); } catch (_) {}
+    const action = body?.action || '';
+    const isAdmin = !!body?.admin;
 
-    // /deduct endpoint
-    if (path === 'deduct' && req.method === 'POST') {
+    if (action === 'deduct' && req.method === 'POST') {
       const body = await req.json();
       const { userId: bodyUserId, amount } = body;
       const amt = Number(amount || 0);
@@ -152,8 +144,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // /award endpoint
-    if (path === 'award' && req.method === 'POST') {
+    if (action === 'award' && req.method === 'POST') {
       const body = await req.json();
       const { userId: bodyUserId, awardType, value } = body;
 
@@ -299,8 +290,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // /status endpoint
-    if (path === 'status' && req.method === 'GET') {
+    if (action === 'status') {
       const { data: config } = await supabase
         .from('wheel_config')
         .select('*')
@@ -321,8 +311,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // /spins-left endpoint
-    if (path === 'spins-left' && req.method === 'GET') {
+    if (action === 'spins-left') {
       let { data: config } = await supabase
         .from('wheel_config')
         .select('*')
@@ -361,9 +350,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // /spin endpoint
-    if (path === 'spin' && req.method === 'POST') {
-      const body = await req.json();
+    if (action === 'spin' && req.method === 'POST') {
       const { userId: bodyUserId } = body;
 
       if (!bodyUserId || userId !== bodyUserId) {
@@ -570,10 +557,31 @@ Deno.serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: 'Not found' }), {
-      status: 404,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    if (action === 'admin-reset') {
+      if (!isAdmin) {
+        return new Response(JSON.stringify({ success: false, error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const today = new Date().toISOString().split('T')[0];
+      await supabase
+        .from('wheel_spins')
+        .delete()
+        .gte('created_at', `${today}T00:00:00`)
+        .lt('created_at', `${today}T23:59:59`);
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    if (action === 'admin-set-reward') {
+      if (!isAdmin) {
+        return new Response(JSON.stringify({ success: false, error: 'Forbidden' }), { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      }
+      const reward = body?.reward;
+      await supabase
+        .from('app_settings')
+        .upsert({ key: 'wheel_prize_overrides', value: reward });
+      return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    }
+
+    return new Response(JSON.stringify({ error: 'Unsupported action' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message || 'Server error' }), {

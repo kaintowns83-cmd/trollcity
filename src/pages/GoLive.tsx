@@ -91,13 +91,7 @@ const GoLive: React.FC = () => {
     setIsLive(false);
     stopPreview();
     if (currentStreamId) {
-      await supabase
-        .from("streams")
-        .update({
-          is_live: false,
-          ended_at: new Date().toISOString(),
-        })
-        .eq("id", currentStreamId);
+      await api.post('/live', { action: 'end', stream_id: currentStreamId });
     }
     setCurrentStreamId(null);
   };
@@ -113,12 +107,12 @@ const GoLive: React.FC = () => {
     try {
       const roomName = `${profile.username}-${Date.now()}`.toLowerCase();
       const tokenPath = LIVEKIT_TOKEN_ENDPOINT || API_ENDPOINTS.livekit.token;
-      const resp = await api.get(tokenPath, { room: roomName, identity: profile.username });
+      const resp = await api.post(tokenPath, { room: roomName, identity: profile.username, metadata: { user_id: profile.id, username: profile.username, avatar_url: profile.avatar_url, level: profile.level } });
       if (!resp.success) throw new Error(resp?.error || 'Token fetch failed');
-      const { token, url } = resp;
+      const { token, livekitUrl } = resp;
 
       const newRoom = new Room({ adaptiveStream: true });
-      await newRoom.connect(url, token);
+      await newRoom.connect(livekitUrl, token);
 
       // 🎥 Try to get video track, but allow audio-only if webcam fails
       let hasVideo = false;
@@ -161,24 +155,9 @@ const GoLive: React.FC = () => {
         }
       });
 
-      // 📦 Save Live stream in Supabase (standard troll_streams schema)
-      const { data: streamRow, error: insertError } = await supabase
-        .from("streams")
-        .insert({
-          broadcaster_id: profile.id,
-          title,
-          category,
-          current_viewers: 1,
-          is_live: true,
-          start_time: new Date().toISOString(),
-          room_name: roomName,
-          livekit_url: url,
-          created_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (insertError) throw insertError;
+      const startRes = await api.post('/live', { action: 'start', stream_id: null, user_id: profile.id, title, category, room_name: roomName, livekit_url: livekitUrl });
+      if (!startRes.success) throw new Error(startRes.error || 'Failed to start stream');
+      const streamRow = startRes.stream;
 
       setCurrentStreamId(streamRow.id);
       setRoom(newRoom);
