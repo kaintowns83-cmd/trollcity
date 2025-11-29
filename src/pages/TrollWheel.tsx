@@ -260,24 +260,27 @@ const TrollWheel = () => {
       console.log('[Wheel] Initiating spin:', { userId: profile.id, balance: profile.free_coin_balance, cost: SPIN_COST })
       console.log('[Wheel] Using token:', token.substring(0, 20) + '...')
       
-      const j = await api.post<{ prize: { id: string; name: string; type: WheelPrize['type'] | 'bankrupt'; value: number; probability: number }; profile: { free_coin_balance?: number; badge?: string }; details?: string }>(
-        '/wheel-spin',
-        { userId: profile.id, spinCost: SPIN_COST, prizes: WHEEL_PRIZES.map(p => ({ id: p.id, name: p.name, type: p.type === 'vip' ? 'bankrupt' : p.type, value: p.value, probability: p.probability })) }
-      )
-      
+      const response = await fetch(`${import.meta.env.VITE_EDGE_FUNCTIONS_URL}/spin-wheel`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: profile.id }),
+      });
+      const j = await response.json();
+
       console.log('[Wheel] API response:', j)
-      
-      if (!j.success || !j.prize) {
+
+      if (!j.success) {
         const errorMsg = j?.error || 'Spin failed'
-        const errorDetails = j?.details || ''
-        console.error('[Wheel] Spin failed:', errorMsg, errorDetails)
-        toast.error(`${errorMsg}${errorDetails ? ': ' + errorDetails : ''}`)
+        console.error('[Wheel] Spin failed:', errorMsg)
+        toast.error(errorMsg)
         return
       }
-      
-      const jp = j.prize as { id: string; name: string; type: WheelPrize['type'] | 'bankrupt'; value: number; probability: number }
-      prize = { id: jp.id, name: jp.name, type: (jp.type === 'bankrupt' ? 'vip' : jp.type), value: jp.value, probability: jp.probability, icon: '', color: '', glow: '', description: '' }
-      serverProfile = j.profile
+
+      // Fixed prize for now: 200 Coin Bonus Pack
+      prize = WHEEL_PRIZES[0];
+      serverProfile = { free_coin_balance: (profile.free_coin_balance || 0) + 10 }
       
       console.log('[Wheel] Prize won:', prize)
       console.log('[Wheel] Updated profile:', serverProfile)
