@@ -1,10 +1,18 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+/// <reference lib="deno.ns" />
+// @ts-expect-error - Deno runtime handles URL imports
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const FRONTEND_URL = Deno.env.get("FRONTEND_URL") || "https://trollcity.app";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+const cors = {
+  "Access-Control-Allow-Origin": FRONTEND_URL,
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
 
 // Officer pay rates (must match frontend)
 const OFFICER_HOURLY_COINS: Record<number, number> = {
@@ -13,9 +21,20 @@ const OFFICER_HOURLY_COINS: Record<number, number> = {
   3: 1200   // Commander
 };
 
-serve(async (req) => {
+Deno.serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === "OPTIONS") {
+    return new Response("ok", {
+      status: 200,
+      headers: cors,
+    });
+  }
+
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return new Response("Method not allowed", { 
+      status: 405,
+      headers: { ...cors, "Content-Type": "application/json" }
+    });
   }
 
   try {
@@ -108,11 +127,14 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ success: true }), {
       status: 200,
-      headers: { "Content-Type": "application/json" }
+      headers: { ...cors, "Content-Type": "application/json" }
     });
   } catch (e) {
     console.error("Error in officer-leave-stream:", e);
-    return new Response("Server error", { status: 500 });
+    return new Response(JSON.stringify({ error: "Server error" }), { 
+      status: 500,
+      headers: { ...cors, "Content-Type": "application/json" }
+    });
   }
 });
 
