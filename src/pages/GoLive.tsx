@@ -138,6 +138,47 @@ const GoLive: React.FC<GoLiveProps> = ({ className = '' }) => {
         ? crypto.randomUUID() 
         : `${Date.now()}-${Math.random().toString(36).substring(2, 11)}-${Math.random().toString(36).substring(2, 11)}`;
 
+      // Upload thumbnail if provided
+      let thumbnailUrl = null;
+      if (thumbnailFile) {
+        setUploadingThumbnail(true);
+        try {
+          const fileExt = thumbnailFile.name.split('.').pop();
+          const fileName = `${streamId}-${Date.now()}.${fileExt}`;
+          const filePath = `thumbnails/${fileName}`;
+          
+          // Try multiple buckets
+          let bucketName = 'troll-city-assets';
+          let uploadError = null;
+          
+          const uploadResult = await supabase.storage
+            .from(bucketName)
+            .upload(filePath, thumbnailFile, { cacheControl: '3600', upsert: false });
+          uploadError = uploadResult.error;
+          
+          if (uploadError) {
+            bucketName = 'public';
+            const retryResult = await supabase.storage
+              .from(bucketName)
+              .upload(filePath, thumbnailFile, { cacheControl: '3600', upsert: false });
+            uploadError = retryResult.error;
+          }
+          
+          if (!uploadError) {
+            const { data: urlData } = supabase.storage
+              .from(bucketName)
+              .getPublicUrl(filePath);
+            thumbnailUrl = urlData.publicUrl;
+          } else {
+            console.warn('Thumbnail upload failed, continuing without thumbnail');
+          }
+        } catch (thumbErr) {
+          console.warn('Thumbnail upload error:', thumbErr);
+        } finally {
+          setUploadingThumbnail(false);
+        }
+      }
+
       // 1️⃣ Save or update stream in Supabase
       const { data: streamRecord, error: dbError } = await supabase
         .from('streams')
@@ -148,6 +189,8 @@ const GoLive: React.FC<GoLiveProps> = ({ className = '' }) => {
           is_live: true,
           status: 'live',
           start_time: new Date().toISOString(),
+          thumbnail_url: thumbnailUrl,
+          is_testing_mode: isTestingMode, // Mark as testing mode for orientation
         })
         .select()
         .single();
@@ -218,11 +261,14 @@ const GoLive: React.FC<GoLiveProps> = ({ className = '' }) => {
         throw new Error('Invalid token format received from server');
       }
 
+      // Store streamId in state before navigation
+      setStreamId(streamId);
       setIsStreaming(true);
-      setStreamId(streamId); // Store streamId in state
       
       // 3️⃣ Navigate to StreamRoom with the streamId in the URL
+      // Use replace: false to allow back navigation
       navigate(`/stream/${streamId}`, {
+        replace: false,
         state: {
           roomName: streamId, // Use streamId as roomName for consistency
           serverUrl: serverUrl,
