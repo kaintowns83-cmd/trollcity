@@ -110,17 +110,26 @@ async function request<T = any>(
     // Don't require auth for signup endpoint (user doesn't exist yet)
     const isSignupEndpoint = endpoint.includes('/auth/signup');
     
-    const requestHeaders = {
+    const requestHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      // Only add auth header if we have a token AND it's not a signup endpoint
-      ...(token && !isSignupEndpoint ? { Authorization: `Bearer ${token}` } : {}),
-      // For signup, use anon key if available
-      ...(isSignupEndpoint && !token ? { 
-        'apikey': supabaseAnonKey || '',
-        'x-client-info': 'trollcity-web'
-      } : {}),
-      ...headers,
+    };
+    
+    // Always include anon key for Supabase Edge Functions
+    if (supabaseAnonKey) {
+      requestHeaders['apikey'] = supabaseAnonKey;
     }
+    
+    // For signup endpoint, don't require user auth token
+    // For other endpoints, add auth token if available
+    if (!isSignupEndpoint && token) {
+      requestHeaders['Authorization'] = `Bearer ${token}`;
+    }
+    
+    // Add client info header
+    requestHeaders['x-client-info'] = 'trollcity-web';
+    
+    // Merge any additional headers (these can override defaults)
+    Object.assign(requestHeaders, headers);
 
     // Log token status for debugging (wheel and square endpoints)
     if (isSquareEndpoint || isWheelEndpoint) {

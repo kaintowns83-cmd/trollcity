@@ -14,21 +14,6 @@ Deno.serve(async (req) => {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   };
 
-  // For signup endpoint, we don't require authorization (user doesn't exist yet)
-  // But we should validate the request comes from our app
-  const validateRequest = (req: Request, requireAuth: boolean = false) => {
-    if (requireAuth) {
-      const authHeader = req.headers.get('authorization');
-      if (!authHeader) {
-        return new Response(JSON.stringify({ error: 'Missing authorization header' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-    }
-    return null; // Request is valid
-  };
-
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -226,11 +211,8 @@ Deno.serve(async (req) => {
     }
 
     // /signup - No auth required (user doesn't exist yet)
+    // This endpoint uses service role key internally, so no user auth needed
     if (path === 'signup' && req.method === 'POST') {
-      // Signup doesn't require authorization, but validate it's a valid request
-      const validationError = validateRequest(req, false);
-      if (validationError) return validationError;
-      
       const body = await req.json();
       const { email, password, username, referral_code } = body;
       
