@@ -35,7 +35,7 @@ const MyEarnings = lazy(() => import("./pages/MyEarnings"));
 // Lazy-loaded pages
 const GoLive = lazy(() => import("./pages/GoLive"));
 const StreamRoom = lazy(() => import("./pages/StreamRoom"));
-const Stream = lazy(() => import("./pages/stream"));
+const Stream = lazy(() => import("./pages/Stream"));
 const StreamSummary = lazy(() => import("./pages/StreamSummary"));
 const Messages = lazy(() => import("./pages/Messages"));
 const Notifications = lazy(() => import("./pages/Notifications"));
@@ -452,11 +452,9 @@ function App() {
                   <Route
                     path="/lead-officer/review"
                     element={
-                      <RequireAuth>
-                        <RequireRole roles={["admin", "troll_officer"]}>
-                          <LeadOfficerReview />
-                        </RequireRole>
-                      </RequireAuth>
+                      <RequireRole roles={["admin", "troll_officer"]}>
+                        <LeadOfficerReview />
+                      </RequireRole>
                     }
                   />
                   <Route
