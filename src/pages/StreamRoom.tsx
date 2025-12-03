@@ -1,269 +1,299 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Room, RoomEvent, createLocalVideoTrack, createLocalAudioTrack } from 'livekit-client';
 import api from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../lib/store';
-import { Video, Gift, Send } from 'lucide-react';
-import BroadcasterApplicationForm from '../components/BroadcasterApplicationForm';
 import { toast } from 'sonner';
+import TopBar from '../components/stream/TopBar';
+import ChatOverlay from '../components/stream/ChatOverlay';
+import ControlBar from '../components/stream/ControlBar';
+import VideoFeed from '../components/stream/VideoFeed';
+import { endStream } from '../lib/endStream';
 
-interface GoLiveProps {
-  className?: string;
-}
-
-const GoLive: React.FC<GoLiveProps> = ({ className = '' }) => {
-  const navigate = useNavigate();
+export default function StreamRoom() {
+  const { id, streamId } = useParams<{ id?: string; streamId?: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const { user, profile } = useAuthStore();
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [roomName, setRoomName] = useState('');
-  const [streamTitle, setStreamTitle] = useState('');
+  
+  const [room, setRoom] = useState<Room | null>(null);
+  const [stream, setStream] = useState<any>(null);
+  const [isConnecting, setIsConnecting] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [chatInput, setChatInput] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamId, setStreamId] = useState<string | null>(null);
-  const [showApplicationForm, setShowApplicationForm] = useState(false);
-  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
-  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
-  const [uploadingThumbnail, setUploadingThumbnail] = useState(false);
+  const [livekitUrl, setLivekitUrl] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isHost, setIsHost] = useState(false);
   const [isTestingMode, setIsTestingMode] = useState(false);
-  const [broadcasterStatus, setBroadcasterStatus] = useState<{
-    isApproved: boolean;
-    hasApplication: boolean;
-    applicationStatus: string | null;
-  } | null>(null);
 
-  // Check broadcaster status
+  // Get stream ID from params or location state
+  const actualStreamId = id || streamId || location.state?.streamId;
+
+  // Load stream data
   useEffect(() => {
-    const checkStatus = async () => {
-      const { profile, user } = useAuthStore.getState();
-      if (!user || !profile) return;
+    if (!actualStreamId) {
+      setError('Stream ID not found');
+      setIsConnecting(false);
+      return;
+    }
 
-      if (profile.is_broadcaster) {
-        setBroadcasterStatus({
-          isApproved: true,
-          hasApplication: true,
-          applicationStatus: 'approved',
-        });
-        return;
-      }
+    const loadStream = async () => {
+      try {
+        const { data, error: streamError } = await supabase
+          .from('streams')
+          .select(`
+            *,
+            user_profiles!broadcaster_id (
+              id,
+              username,
+              avatar_url,
+              is_broadcaster
+            )
+          `)
+          .eq('id', actualStreamId)
+          .single();
 
-      const { data: existingApp } = await supabase
-        .from('broadcaster_applications')
-        .select('application_status')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        if (streamError) {
+          console.error('Stream load error:', streamError);
+          setError('Stream not found');
+          setIsConnecting(false);
+          return;
+        }
 
-      if (existingApp) {
-        setBroadcasterStatus({
-          isApproved: existingApp.application_status === 'approved',
-          hasApplication: true,
-          applicationStatus: existingApp.application_status,
+        if (!data || !data.is_live) {
+          setError('Stream is not live');
+          setIsConnecting(false);
+          navigate('/live', { replace: true });
+          return;
+        }
+
+        setStream(data);
+        setIsTestingMode(data.is_testing_mode || false);
+
+        // Check if user is the host
+        const isUserHost = user && profile && data.broadcaster_id === profile.id;
+        setIsHost(isUserHost);
+
+        // Get LiveKit token
+        const tokenResponse = await api.post('/livekit-token', {
+          room: data.room_name || actualStreamId,
+          identity: user?.email || user?.id || 'anonymous',
+          isHost: isUserHost,
         });
-      } else {
-        setBroadcasterStatus({
-          isApproved: false,
-          hasApplication: false,
-          applicationStatus: null,
-        });
+
+        if (tokenResponse.error || !tokenResponse.token) {
+          throw new Error(tokenResponse.error || 'Failed to get LiveKit token');
+        }
+
+        const serverUrl = tokenResponse.livekitUrl || tokenResponse.serverUrl;
+        if (!serverUrl) {
+          throw new Error('LiveKit server URL not found');
+        }
+
+        setLivekitUrl(serverUrl);
+        setToken(tokenResponse.token);
+      } catch (err: any) {
+        console.error('Stream initialization error:', err);
+        setError(err.message || 'Failed to load stream');
+        setIsConnecting(false);
+        toast.error(err.message || 'Failed to load stream');
       }
     };
 
-    checkStatus();
-  }, []);
+    loadStream();
+  }, [actualStreamId, user, profile, navigate]);
 
-  const handleStartStream = async () => {
-    const { profile } = useAuthStore.getState();
+  // Initialize LiveKit connection
+  useEffect(() => {
+    if (!livekitUrl || !token || !stream) return;
 
-    if (!user || !profile) {
-      setError('You must be logged in to go live');
-      return;
-    }
+    let newRoom: Room | null = null;
 
-    // Block unless approved OR testing mode
-    if (!profile.is_broadcaster && !isTestingMode) {
-      toast.error("🚫 You must be an approved broadcaster to go live.");
-      return;
-    }
+    const initializeLiveKit = async () => {
+      try {
+        setIsConnecting(true);
+        
+        newRoom = new Room({
+          adaptiveStream: true,
+          dynacast: true,
+        });
 
-    if (!roomName.trim() || !streamTitle.trim()) {
-      setError('Please fill in all required fields');
-      return;
-    }
+        // Set up event listeners
+        newRoom.on(RoomEvent.Connected, () => {
+          console.log('✅ Connected to LiveKit room');
+          setIsConnecting(false);
+        });
 
-    setIsConnecting(true);
-    setError(null);
+        newRoom.on(RoomEvent.Disconnected, () => {
+          console.log('❌ Disconnected from LiveKit room');
+          navigate('/live', { replace: true });
+        });
 
-    try {
-      const streamId = crypto.randomUUID();
+        newRoom.on(RoomEvent.ParticipantConnected, (participant) => {
+          console.log('Participant connected:', participant.identity);
+        });
 
-      // Upload thumbnail
-      let thumbnailUrl = null;
-      if (thumbnailFile) {
-        setUploadingThumbnail(true);
-        try {
-          const fileExt = thumbnailFile.name.split('.').pop();
-          const fileName = `${streamId}-${Date.now()}.${fileExt}`;
-          const filePath = `thumbnails/${fileName}`;
+        newRoom.on(RoomEvent.ParticipantDisconnected, (participant) => {
+          console.log('Participant disconnected:', participant.identity);
+        });
 
-          let bucketName = 'troll-city-assets';
-          let uploadError = null;
+        // Connect to room
+        await newRoom.connect(livekitUrl, token);
+        setRoom(newRoom);
 
-          const uploadResult = await supabase.storage
-            .from(bucketName)
-            .upload(filePath, thumbnailFile, { upsert: false });
-          uploadError = uploadResult.error;
+        // If host, publish tracks
+        if (isHost) {
+          try {
+            const canPublishTracks = isHost || (isTestingMode && profile && !profile.is_broadcaster);
+            
+            if (canPublishTracks) {
+              const [videoTrack, audioTrack] = await Promise.all([
+                createLocalVideoTrack({
+                  facingMode: 'user',
+                }),
+                createLocalAudioTrack(),
+              ]);
 
-          if (uploadError) {
-            bucketName = 'public';
-            const retryResult = await supabase.storage
-              .from(bucketName)
-              .upload(filePath, thumbnailFile, { upsert: false });
-            uploadError = retryResult.error;
+              await newRoom.localParticipant.publishTrack(videoTrack);
+              await newRoom.localParticipant.publishTrack(audioTrack);
+              console.log('✅ Published video and audio tracks');
+            }
+          } catch (trackError) {
+            console.error('Error publishing tracks:', trackError);
+            toast.error('Failed to start camera/microphone');
           }
-
-          if (!uploadError) {
-            const { data: urlData } = supabase.storage
-              .from(bucketName)
-              .getPublicUrl(filePath);
-            thumbnailUrl = urlData.publicUrl;
-          }
-        } catch (thumbErr) {
-          console.warn('Thumbnail upload error:', thumbErr);
-        } finally {
-          setUploadingThumbnail(false);
         }
+
+        // Update viewer count
+        if (stream.id) {
+          try {
+            await supabase.rpc('update_viewer_count', {
+              p_stream_id: stream.id,
+              p_delta: 1,
+            });
+          } catch (viewerError: any) {
+            if (viewerError.code !== 'PGRST202') {
+              console.warn('Viewer count update error:', viewerError);
+            }
+          }
+        }
+      } catch (err: any) {
+        console.error('LiveKit connection error:', err);
+        setError(err.message || 'Failed to connect to stream');
+        setIsConnecting(false);
+        toast.error('Failed to connect to stream');
       }
+    };
 
-      // ⭐ FIXED: FULL STREAM INSERT — prevents "Loading Stream"
-      const { data: streamRecord, error: dbError } = await supabase
-        .from('streams')
-        .insert({
-          id: streamId,
-          broadcaster_id: profile.id,
-          title: streamTitle,
-          room_name: streamId,
-          is_live: true,
-          status: 'live',
-          start_time: new Date().toISOString(),
-          thumbnail_url: thumbnailUrl,
-          is_testing_mode: isTestingMode,
-          current_viewers: 0,
-          viewer_count: 0,
-          popularity: 0,
-          total_gifts_coins: 0,
-          end_time: null,
-        })
-        .select()
-        .single();
+    initializeLiveKit();
 
-      if (dbError) {
-        console.error('STREAM INSERT ERROR:', dbError);
-        throw new Error(dbError.message);
+    // Cleanup
+    return () => {
+      if (newRoom) {
+        newRoom.disconnect();
       }
-
-      // LiveKit token
-      const tokenResp = await api.post('/livekit-token', {
-        room: streamId,
-        identity: user.email || user.id,
-        isHost: true,
-      });
-
-      let token = tokenResp?.token;
-      const serverUrl =
-        tokenResp?.livekitUrl || tokenResp?.serverUrl || tokenResp?.url;
-
-      // Fix token format
-      if (token && typeof token !== 'string') {
-        token = token.token || JSON.stringify(token);
+      // Decrement viewer count
+      if (stream?.id) {
+        supabase.rpc('update_viewer_count', {
+          p_stream_id: stream.id,
+          p_delta: -1,
+        }).catch(() => {});
       }
+    };
+  }, [livekitUrl, token, stream, isHost, isTestingMode, profile, navigate]);
 
-      if (!token || !serverUrl) {
-        throw new Error('LiveKit token missing or invalid');
-      }
-
-      setStreamId(streamId);
-      setIsStreaming(true);
-
-      navigate(`/stream/${streamId}`, {
-        state: {
-          roomName: streamId,
-          serverUrl,
-          token,
-          streamTitle,
-          isHost: true,
-        },
-      });
-    } catch (err: any) {
-      console.error('Stream start error:', err);
-      setError(err.message || 'Failed to start stream');
-    } finally {
-      setIsConnecting(false);
+  // Handle stream end
+  const handleEndStream = async () => {
+    if (!stream?.id || !room) return;
+    
+    const success = await endStream(stream.id, room);
+    if (success) {
+      navigate('/live', { replace: true });
     }
   };
 
+  if (isConnecting) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mx-auto mb-4"></div>
+          <p className="text-white">Connecting to stream...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-500 mb-4">{error}</p>
+          <button
+            onClick={() => navigate('/live')}
+            className="px-4 py-2 bg-purple-600 text-white rounded-lg"
+          >
+            Go to Live Streams
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!stream || !livekitUrl || !token) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-white">Loading stream...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`go-live-wrapper ${className}`}>
-      <BroadcasterApplicationForm
-        isOpen={showApplicationForm}
-        onClose={() => setShowApplicationForm(false)}
-        onSubmitted={() => toast.success('Application submitted!')}
+    <div className="min-h-screen bg-black relative">
+      {/* Top Bar */}
+      <TopBar
+        room={room}
+        streamerId={stream.broadcaster_id}
+        streamId={stream.id}
+        popularity={stream.popularity || 0}
       />
 
-      <div className="max-w-6xl mx-auto space-y-6">
-        <h1 className="text-3xl font-extrabold mb-6 flex items-center gap-2">
-          <Video className="text-troll-gold w-8 h-8" />
-          Go Live
-        </h1>
+      {/* Video Feed */}
+      <div className="relative w-full h-screen">
+        <VideoFeed
+          livekitUrl={livekitUrl}
+          token={token}
+          isHost={isHost}
+          onRoomReady={(readyRoom) => setRoom(readyRoom)}
+        />
+      </div>
 
-        <div className="host-video-box">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover"
+      {/* Chat Overlay */}
+      <ChatOverlay streamId={stream.id} />
+
+      {/* Control Bar */}
+      {isHost && room && (
+        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-30">
+          <ControlBar
+            room={room}
+            isCameraEnabled={room?.localParticipant?.isCameraEnabled ?? true}
+            isMicrophoneEnabled={room?.localParticipant?.isMicrophoneEnabled ?? true}
+            onToggleCamera={async () => {
+              if (room?.localParticipant) {
+                await room.localParticipant.setCameraEnabled(!room.localParticipant.isCameraEnabled);
+              }
+            }}
+            onToggleMicrophone={async () => {
+              if (room?.localParticipant) {
+                await room.localParticipant.setMicrophoneEnabled(!room.localParticipant.isMicrophoneEnabled);
+              }
+            }}
+            streamId={stream.id}
+            isHost={isHost}
           />
         </div>
-
-        {!isStreaming ? (
-          <div className="bg-[#0E0A1A] rounded-xl border border-purple-700/40 p-6 space-y-6">
-            <input
-              type="text"
-              value={streamTitle}
-              onChange={(e) => setStreamTitle(e.target.value)}
-              placeholder="Stream Title"
-              className="w-full px-4 py-3 bg-[#171427] border border-purple-500/40 rounded-lg text-white"
-            />
-
-            <input
-              type="text"
-              value={roomName}
-              onChange={(e) => setRoomName(e.target.value)}
-              placeholder="Room Name"
-              className="w-full px-4 py-3 bg-[#171427] border border-purple-500/40 rounded-lg text-white"
-            />
-
-            <button
-              onClick={handleStartStream}
-              disabled={isConnecting || !roomName.trim() || !streamTitle.trim()}
-              className="w-full py-3 px-4 rounded-lg font-semibold bg-gradient-to-r from-[#FFD700] to-[#FFA500] text-black"
-            >
-              {isConnecting ? 'Starting...' : 'Go Live'}
-            </button>
-          </div>
-        ) : (
-          <div className="p-6 text-center text-gray-300">
-            Stream started — redirecting…
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
-};
-
-export default GoLive;
+}
